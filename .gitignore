@@ -1,3 +1,7 @@
+# Reference copies of upstream code: kept on disk for analysis, never committed
+sample_code/
+vendor/
+
 # Local tooling and secrets: never commit
 .env
 .env.*

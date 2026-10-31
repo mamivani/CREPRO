@@ -1,4 +1,0 @@
-[pre_model_sync]
-
-[post_model_sync]
-propms.patches.v15_2.reload_property_status_report

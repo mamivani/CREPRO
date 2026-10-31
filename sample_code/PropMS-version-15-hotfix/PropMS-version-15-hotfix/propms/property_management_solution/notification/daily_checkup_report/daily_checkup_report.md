@@ -1,1 +1,0 @@
-This email has been sent with data from daily report submission
