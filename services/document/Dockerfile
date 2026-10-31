@@ -17,24 +17,11 @@ COPY services/document ./services/document
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir ./packages/crepro-common ./services/document
 
-# DELIBERATE, TEMPORARY: swapped the runtime base to an ancient, unmaintained
-# OS image to verify Day 4's container-scan merge gate
-# (docs/plan/15-day-plan-solo.md) with guaranteed known-CRITICAL OS-package
-# CVEs, no Python wheel/build compatibility concerns. This branch/PR will be
+# DELIBERATE, TEMPORARY: swapped the runtime base to the exact image Aqua's
+# own Trivy quickstart docs use as a known-vulnerable demo target, to verify
+# Day 4's container-scan merge gate (docs/plan/15-day-plan-solo.md). Skipping
+# the normal copy/user setup entirely -- this build only needs to produce an
+# image for Trivy to scan, not a working service. This branch/PR will be
 # closed without merging once confirmed.
-FROM debian:8 AS runtime
-
-RUN useradd --create-home --uid 1000 app
-COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH" \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-USER app
-WORKDIR /home/app
-EXPOSE 8007
-
-HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=5 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8007/health', timeout=2)" || exit 1
-
-CMD ["uvicorn", "crepro_document.main:app", "--host", "0.0.0.0", "--port", "8007"]
+FROM python:3.4-alpine AS runtime
+CMD ["true"]
