@@ -34,6 +34,10 @@ resource "azurerm_subnet" "postgres" {
   resource_group_name  = azurerm_resource_group.dev.name
   virtual_network_name = azurerm_virtual_network.dev.name
   address_prefixes     = ["10.20.1.0/24"]
+  # Azure attaches this automatically to a Postgres Flexible Server's
+  # delegated subnet; declared explicitly so Terraform doesn't see drift and
+  # try to remove it.
+  service_endpoints = ["Microsoft.Storage"]
 
   delegation {
     name = "postgres-delegation"
@@ -51,6 +55,14 @@ resource "azurerm_subnet" "container_apps" {
   resource_group_name  = azurerm_resource_group.dev.name
   virtual_network_name = azurerm_virtual_network.dev.name
   address_prefixes     = ["10.20.2.0/23"]
+
+  delegation {
+    name = "container-apps-delegation"
+    service_delegation {
+      name    = "Microsoft.App/environments"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+    }
+  }
 }
 
 resource "azurerm_private_dns_zone" "postgres" {
@@ -118,7 +130,10 @@ resource "azurerm_postgresql_flexible_server" "dev" {
   administrator_password        = random_password.postgres_admin.result
   storage_mb                    = 32768
   sku_name                      = "B_Standard_B1ms"
-  tags                          = local.tags
+  # Azure picked this zone at create time since none was requested; pinned
+  # explicitly so Terraform doesn't see drift and try to unset it.
+  zone = "1"
+  tags = local.tags
 
   depends_on = [azurerm_private_dns_zone_virtual_network_link.postgres]
 }
