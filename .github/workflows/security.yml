@@ -32,16 +32,23 @@ jobs:
   # touched incidentally in a PR is still caught.
   secret-scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      # v3, not v2: v2 is a Node 20 action, and GitHub removed Node 20 from
+      # hosted runners entirely on 2026-09-16, so v2 no longer runs at all.
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          # No pull-requests: write granted above, so PR comments are off; the
+          # required status check failing is the actual gate, not the comment.
+          GITLEAKS_ENABLE_COMMENTS: "false"
 
   # Container image scanning: build each image (same 12-target matrix as
   # build.yml) and scan it before it goes anywhere. Fails on CRITICAL findings
