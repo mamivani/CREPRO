@@ -6,10 +6,6 @@ requires-python = ">=3.12"
 dependencies = [
     "crepro-common",
     "uvicorn>=0.30",
-    # DELIBERATE, TEMPORARY: seeding a known-critical CVE to verify Day 4's
-    # container-scan merge gate (docs/plan/15-day-plan-solo.md). Not a real
-    # dependency; this branch/PR will be closed without merging.
-    "pillow==8.1.0",
 ]
 
 [project.optional-dependencies]

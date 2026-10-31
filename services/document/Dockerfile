@@ -17,7 +17,12 @@ COPY services/document ./services/document
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir ./packages/crepro-common ./services/document
 
-FROM python:3.13-slim AS runtime
+# DELIBERATE, TEMPORARY: swapped the runtime base to an ancient, unmaintained
+# OS image to verify Day 4's container-scan merge gate
+# (docs/plan/15-day-plan-solo.md) with guaranteed known-CRITICAL OS-package
+# CVEs, no Python wheel/build compatibility concerns. This branch/PR will be
+# closed without merging once confirmed.
+FROM debian:8 AS runtime
 
 RUN useradd --create-home --uid 1000 app
 COPY --from=builder /opt/venv /opt/venv
