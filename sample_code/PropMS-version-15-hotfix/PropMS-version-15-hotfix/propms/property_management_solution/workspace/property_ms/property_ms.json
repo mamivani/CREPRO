@@ -1,0 +1,35 @@
+{
+ "doctype": "Workspace",
+ "name": "Property MS",
+ "label": "Property MS",
+ "title": "Property MS",
+ "module": "Property Management Solution",
+ "public": 1,
+ "for_user": "",
+ "parent_page": "",
+ "sequence_id": 4,
+ "icon": "retail",
+ "indicator_color": "",
+ "is_hidden": 1,
+ "hide_custom": 0,
+ "docstatus": 0,
+ "creation": "2021-08-03 15:46:41.730961",
+ "modified": "2026-10-09 09:42:55.580968",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "charts": [],
+ "number_cards": [],
+ "custom_blocks": [],
+ "roles": [],
+ "links": [],
+ "shortcuts": [
+  {
+   "label": "Open Real Estate Management",
+   "type": "URL",
+   "url": "/app/real-estate-management",
+   "color": "Grey"
+  }
+ ],
+ "quick_lists": [],
+ "content": "[{\"id\":\"property_ms-1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Property MS</span>\",\"col\":12}},{\"id\":\"property_ms-2\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Quick Actions & Work Queues</span>\",\"col\":12}},{\"id\":\"property_ms-3\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Open Real Estate Management\",\"col\":4}}]"
+}
