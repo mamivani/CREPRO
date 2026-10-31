@@ -6,8 +6,51 @@ on:
   pull_request:
 
 jobs:
+  # One job per package (same matrix shape as build.yml), so a coverage drop
+  # in one service doesn't hide behind a single green "tests" check and
+  # blocks only that package's branch-protection check.
   pytest:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: crepro-common
+            path: packages/crepro-common
+            package: crepro_common
+          - name: identity
+            path: services/identity
+            package: crepro_identity
+          - name: tenant
+            path: services/tenant
+            package: crepro_tenant
+          - name: property
+            path: services/property
+            package: crepro_property
+          - name: lease
+            path: services/lease
+            package: crepro_lease
+          - name: reservation
+            path: services/reservation
+            package: crepro_reservation
+          - name: payment
+            path: services/payment
+            package: crepro_payment
+          - name: document
+            path: services/document
+            package: crepro_document
+          - name: utility
+            path: services/utility
+            package: crepro_utility
+          - name: maintenance
+            path: services/maintenance
+            package: crepro_maintenance
+          - name: reporting
+            path: services/reporting
+            package: crepro_reporting
+          - name: erp_adapter
+            path: services/erp_adapter
+            package: crepro_erp_adapter
     steps:
       - uses: actions/checkout@v4
 
@@ -19,13 +62,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e packages/crepro-common[dev]
-          for svc in services/*/; do python -m pip install -e "$svc[dev]"; done
+          if [ "${{ matrix.target.path }}" != "packages/crepro-common" ]; then
+            python -m pip install -e "${{ matrix.target.path }}[dev]"
+          fi
 
-      - name: Unit and integration tests
+      # Coverage gate: 90% uniformly for now (meets the Domain Logic tier of
+      # Vol 5 S18's table -- Domain 90% / APIs 80% / Utilities 90% / Critical
+      # workflows 95% -- and every package already clears it). Day 9 splits
+      # this by area as real business logic (not just CRUD) lands and the
+      # tiers start to actually differ from each other.
+      - name: Unit and integration tests (coverage >= 90%)
         run: |
-          python -m pytest packages/crepro-common/tests
-          for svc in services/*/; do python -m pytest "$svc/tests"; done
+          python -m pytest "${{ matrix.target.path }}/tests" \
+            --cov="${{ matrix.target.package }}" \
+            --cov-report=term-missing \
+            --cov-fail-under=90
 
-      # Coverage gate (Domain 90% / APIs 80% / Utilities 90% / Critical workflows 95%,
-      # docs/plan/15-day-plan-solo.md) and contract tests against each service's OpenAPI
-      # schema land Day 6 and Day 9.
+      # Contract tests against each service's OpenAPI schema land Day 9.
