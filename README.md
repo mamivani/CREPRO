@@ -15,7 +15,8 @@ Unified Property Operations Platform. Architecture, design and delivery plan for
 | [packages/crepro-common/Dockerfile](packages/crepro-common/Dockerfile) | Builds and tests the shared library in the same image-matrix pattern as every service |
 | [dapr/components](dapr/components) | Dapr pub/sub component for local dev (`pubsub.redis`, not `pubsub.in-memory` — see the comment in `pubsub.yaml` for why) |
 | [docker-compose.yml](docker-compose.yml) | Local stack: Postgres, Redis, every service with its own Dapr sidecar, and the external ERP behind the `erp` profile |
-| [.github/workflows](.github/workflows) | CI/CD: `build`, `test`, `security`, `terraform`, `deploy` (Vol 5 §15). `build` lints and builds every service image in a matrix; `test` runs pytest for every package; `security`/`terraform`/`deploy` are still Day 1 stubs per the [15-day plan](docs/plan/15-day-plan-solo.md) |
+| [infra/terraform/environments/dev](infra/terraform/environments/dev) | Terraform for the Dev Azure environment: resource group, private VNet-integrated PostgreSQL Flexible Server, Key Vault, Storage, Container Registry, a Container Apps environment (no apps deployed yet — Day 14), and a Service Bus Standard namespace with the `erp-events` topic (ADR-013) |
+| [.github/workflows](.github/workflows) | CI/CD: `build`, `test`, `security`, `terraform`, `deploy` (Vol 5 §15). `build` lints and builds every service image in a matrix; `test` runs pytest for every package; `terraform` runs a real `plan` on every PR/push and `apply` on manual dispatch (the Vol 4 §16 approval gate — this repo's plan doesn't support required-reviewer environments, so the gate is a human explicitly triggering the apply after reading the plan); `security`/`deploy` are still Day 1 stubs |
 | `vendor/erpnext` | Local, untracked copy of the upstream financial system (reference only, not part of the repo) |
 | `sample_code/` | Local, untracked reference code used for analysis (not part of the repo) |
 
@@ -59,11 +60,31 @@ builds and runs every service in its own container, so it works without a local 
 
 Backend stack: [ADR-014](docs/adr/ADR-014-backend-stack.md) (Python 3.12+, FastAPI).
 
+## Dev infrastructure (Azure)
+
+`infra/terraform/environments/dev` provisions the Dev environment. Remote state lives in a
+storage account bootstrapped once outside Terraform (`rg-crepro-tfstate`/`creprotfstate` —
+the usual chicken-and-egg: Terraform needs a backend before it can manage anything);
+`backend.hcl` holds the non-secret account/container/key values. Authentication is Azure AD
+(OIDC in CI via a GitHub-federated app registration, `az login` locally) — no stored client
+secret anywhere.
+
+```powershell
+cd infra/terraform/environments/dev
+terraform init "-backend-config=backend.hcl"   # quote the flag on Windows PowerShell 7
+terraform plan
+```
+
+`terraform apply` only ever runs through `gh workflow run terraform.yml` (or the Actions UI),
+never locally and never from a PR — that manual trigger *is* the approval gate between plan and
+apply (Vol 4 §16), per ADR-009 (Terraform-only, no portal changes).
+
 ## Status
 
 Planning and design are done. Every service has a real tenant-isolated CRUD surface over its
 core domain entities (in-memory, pending a database), is containerized (Vol 1 §9.3), and runs
-locally with its own Dapr sidecar for pub/sub. CI builds and lints every image and runs every
+locally with its own Dapr sidecar for pub/sub. The Dev Azure environment is provisioned by
+Terraform through CI/CD (no portal changes). CI builds and lints every image and runs every
 test suite; branch protection requires both to pass. Next steps are the frontend (Next.js,
-ADR-003), Terraform, persistence, auth, and the ERP adapter's push/reconciliation workers,
-following the [15-day plan](docs/plan/15-day-plan-solo.md).
+ADR-003), wiring real persistence into the services, auth, and the ERP adapter's
+push/reconciliation workers, following the [15-day plan](docs/plan/15-day-plan-solo.md).
