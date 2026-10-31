@@ -20,7 +20,7 @@
 - External ERP system running locally and in Dev, with Customer, Sales Invoice and Payment Entry posting
 
 **Out (moved to Days 16–25 or later sprints):**
-- Full business-logic depth for Lease (increment engine, invoice-schedule generation), Reservation, Maintenance dispatch, utility billing, reporting dashboards, white label, AI — these services exist, are containerized, tested at the CRUD level, and deployed, but their domain workflows are not built yet
+- Full business-logic depth for Lease (increment engine, invoice-schedule generation), Reservation, Maintenance dispatch, utility billing, reporting dashboards, white label, AI — these services exist, are containerized, tested at the CRUD level, and deployed, but their domain workflows are not built yet. When this is built, port the actual algorithms from sample_code (e.g. its rent-increment engine, invoice-schedule generator, and invoice-build logic) adapted to CREPRO's clean-room style, rather than designing new algorithms from scratch.
 - Live Stripe and ACH (Payment Entry is posted from a test payment event)
 - Staging/Production environments and multi-region DR (Dev only this phase)
 - Per-tenant dedicated infrastructure provisioning (Vol 4 §14–§15)
