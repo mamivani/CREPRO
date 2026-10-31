@@ -50,10 +50,16 @@ jobs:
   # the approval gate here is the act of a human explicitly running this
   # workflow via `gh workflow run terraform.yml` or the Actions UI, after
   # reading the plan output above -- apply never runs automatically on push.
+  # Deliberately no `environment:` here: GitHub issues a different OIDC
+  # subject (repo:...:environment:NAME) for jobs that reference one, which
+  # needs its own separate federated credential and was seen to take far
+  # longer to propagate through Azure AD than the ref-based credentials used
+  # for plan -- not worth it for a restriction workflow_dispatch already
+  # provides (an explicit human action) on a billing plan that can't use this
+  # environment's one real benefit (required reviewers) anyway.
   apply:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment: dev
     steps:
       - uses: actions/checkout@v4
 
