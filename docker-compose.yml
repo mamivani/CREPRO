@@ -1,3 +1,24 @@
+# Local development stack (docs/plan/15-day-plan-solo.md Day 2).
+#
+# `docker compose up`            -> Postgres, Redis, all 11 services, one Dapr
+#                                    sidecar per service (pubsub.redis against
+#                                    the "redis" service below; see
+#                                    dapr/components/pubsub.yaml for why this is
+#                                    pubsub.redis and not Dapr's pubsub.in-memory).
+# `docker compose --profile erp up` -> also brings up the external ERP
+#                                    (vendored version v15.124.3, see README),
+#                                    modeled on its own official frappe_docker
+#                                    pwd.yml. Kept behind a profile: it is ~10
+#                                    extra containers and is not needed for
+#                                    Days 1-6 (Identity/Property work).
+
+x-app-environment: &app-environment
+  CREPRO_ENVIRONMENT: local
+  CREPRO_DATABASE_URL: postgresql://crepro:crepro@postgres:5432/crepro
+  CREPRO_REDIS_URL: redis://redis:6379/0
+
+x-dapr-sidecar-image: &dapr-sidecar-image daprio/daprd:1.19.1
+
 services:
   postgres:
     image: postgres:16
@@ -11,6 +32,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U crepro"]
       interval: 5s
       retries: 10
+    networks:
+      - crepro
 
   redis:
     image: redis:7
@@ -20,3 +43,636 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 10
+    networks:
+      - crepro
+
+  identity:
+    build:
+      context: .
+      dockerfile: services/identity/Dockerfile
+    image: crepro/identity:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  identity-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "identity",
+        "-app-port", "8001",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:identity"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      identity:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  tenant:
+    build:
+      context: .
+      dockerfile: services/tenant/Dockerfile
+    image: crepro/tenant:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  tenant-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "tenant",
+        "-app-port", "8002",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:tenant"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      tenant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  property:
+    build:
+      context: .
+      dockerfile: services/property/Dockerfile
+    image: crepro/property:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  property-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "property",
+        "-app-port", "8003",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:property"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      property:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  lease:
+    build:
+      context: .
+      dockerfile: services/lease/Dockerfile
+    image: crepro/lease:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8004:8004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  lease-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "lease",
+        "-app-port", "8004",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:lease"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      lease:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  reservation:
+    build:
+      context: .
+      dockerfile: services/reservation/Dockerfile
+    image: crepro/reservation:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8005:8005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  reservation-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "reservation",
+        "-app-port", "8005",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:reservation"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      reservation:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  payment:
+    build:
+      context: .
+      dockerfile: services/payment/Dockerfile
+    image: crepro/payment:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8006:8006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  payment-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "payment",
+        "-app-port", "8006",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:payment"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      payment:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  document:
+    build:
+      context: .
+      dockerfile: services/document/Dockerfile
+    image: crepro/document:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8007:8007"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  document-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "document",
+        "-app-port", "8007",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:document"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      document:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  utility:
+    build:
+      context: .
+      dockerfile: services/utility/Dockerfile
+    image: crepro/utility:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8008:8008"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  utility-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "utility",
+        "-app-port", "8008",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:utility"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      utility:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  maintenance:
+    build:
+      context: .
+      dockerfile: services/maintenance/Dockerfile
+    image: crepro/maintenance:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8009:8009"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  maintenance-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "maintenance",
+        "-app-port", "8009",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:maintenance"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      maintenance:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  reporting:
+    build:
+      context: .
+      dockerfile: services/reporting/Dockerfile
+    image: crepro/reporting:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8010:8010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  reporting-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "reporting",
+        "-app-port", "8010",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:reporting"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      reporting:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  erp_adapter:
+    build:
+      context: .
+      dockerfile: services/erp_adapter/Dockerfile
+    image: crepro/erp_adapter:local
+    environment:
+      <<: *app-environment
+    ports:
+      - "8011:8011"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crepro
+
+  erp_adapter-dapr:
+    image: *dapr-sidecar-image
+    command:
+      [
+        "./daprd",
+        "-app-id", "erp_adapter",
+        "-app-port", "8011",
+        "-dapr-http-port", "3500",
+        "-dapr-grpc-port", "50001",
+        "-resources-path", "/components",
+        "-log-level", "warn",
+      ]
+    network_mode: "service:erp_adapter"
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      erp_adapter:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  # --- External ERP (profile: erp) ---------------------------------------
+  # Modeled on frappe_docker's own pwd.yml (fetched from
+  # github.com/frappe/frappe_docker, not vendored in this repo), pinned to the
+  # exact version vendored in docs/architecture (v15.124.3) instead of that
+  # file's own floating tag, and trimmed to install only the "erpnext" app
+  # (docs/design/erp-adapter-hybrid.md S10: "payments" app is not used).
+  erp-db:
+    image: mariadb:11.8
+    profiles: ["erp"]
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --innodb-snapshot-isolation=OFF
+    environment:
+      MYSQL_ROOT_PASSWORD: ${ERPNEXT_DB_ROOT_PASSWORD:-admin}
+      MARIADB_ROOT_PASSWORD: ${ERPNEXT_DB_ROOT_PASSWORD:-admin}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 5s
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - erp-db-data:/var/lib/mysql
+    networks:
+      - crepro
+
+  erp-redis-cache:
+    image: redis:6.2-alpine
+    profiles: ["erp"]
+    networks:
+      - crepro
+
+  erp-redis-queue:
+    image: redis:6.2-alpine
+    profiles: ["erp"]
+    volumes:
+      - erp-redis-queue-data:/data
+    networks:
+      - crepro
+
+  erp-configurator:
+    image: frappe/erpnext:v15.124.3
+    profiles: ["erp"]
+    entrypoint: ["bash", "-c"]
+    command:
+      - >
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host erp-db;
+        bench set-config -gp db_port 3306;
+        bench set-config -g redis_cache "redis://erp-redis-cache:6379";
+        bench set-config -g redis_queue "redis://erp-redis-queue:6379";
+        bench set-config -g redis_socketio "redis://erp-redis-queue:6379";
+        bench set-config -gp socketio_port 9000;
+    volumes:
+      - erp-sites:/home/frappe/frappe-bench/sites
+      - erp-logs:/home/frappe/frappe-bench/logs
+    networks:
+      - crepro
+
+  erp-create-site:
+    image: frappe/erpnext:v15.124.3
+    profiles: ["erp"]
+    entrypoint: ["bash", "-c"]
+    command:
+      - >
+        wait-for-it -t 120 erp-db:3306;
+        wait-for-it -t 120 erp-redis-cache:6379;
+        wait-for-it -t 120 erp-redis-queue:6379;
+        export start=`date +%s`;
+        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
+        do
+          echo "Waiting for sites/common_site_config.json to be created";
+          sleep 5;
+          if (( `date +%s`-start > 120 )); then
+            echo "could not find sites/common_site_config.json with required keys";
+            exit 1
+          fi
+        done;
+        if [ -d "sites/frontend" ]; then
+          echo "Site frontend already exists, skipping creation";
+        else
+          bench new-site --mariadb-user-host-login-scope='%' \
+            --admin-password="${ERPNEXT_ADMIN_PASSWORD:-admin}" \
+            --db-root-username=root \
+            --db-root-password="${ERPNEXT_DB_ROOT_PASSWORD:-admin}" \
+            --install-app erpnext \
+            --set-default frontend;
+        fi;
+    depends_on:
+      erp-configurator:
+        condition: service_completed_successfully
+    volumes:
+      - erp-sites:/home/frappe/frappe-bench/sites
+      - erp-logs:/home/frappe/frappe-bench/logs
+    networks:
+      - crepro
+
+  erp-backend:
+    image: frappe/erpnext:v15.124.3
+    profiles: ["erp"]
+    environment:
+      DB_HOST: erp-db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: ${ERPNEXT_DB_ROOT_PASSWORD:-admin}
+      MARIADB_ROOT_PASSWORD: ${ERPNEXT_DB_ROOT_PASSWORD:-admin}
+    depends_on:
+      erp-create-site:
+        condition: service_completed_successfully
+    volumes:
+      - erp-sites:/home/frappe/frappe-bench/sites
+      - erp-logs:/home/frappe/frappe-bench/logs
+    networks:
+      - crepro
+
+  erp-websocket:
+    image: frappe/erpnext:v15.124.3
+    profiles: ["erp"]
+    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+    environment:
+      FRAPPE_REDIS_CACHE: redis://erp-redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://erp-redis-queue:6379
+    depends_on:
+      erp-create-site:
+        condition: service_completed_successfully
+    volumes:
+      - erp-sites:/home/frappe/frappe-bench/sites
+      - erp-logs:/home/frappe/frappe-bench/logs
+    networks:
+      - crepro
+
+  erp-frontend:
+    image: frappe/erpnext:v15.124.3
+    profiles: ["erp"]
+    command: ["nginx-entrypoint.sh"]
+    environment:
+      BACKEND: erp-backend:8000
+      FRAPPE_SITE_NAME_HEADER: frontend
+      SOCKETIO: erp-websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    depends_on:
+      - erp-websocket
+      - erp-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - erp-sites:/home/frappe/frappe-bench/sites
+      - erp-logs:/home/frappe/frappe-bench/logs
+    networks:
+      - crepro
+
+  erp-queue-short:
+    image: frappe/erpnext:v15.124.3
+    profiles: ["erp"]
+    command: ["bench", "worker", "--queue", "short,default"]
+    environment:
+      FRAPPE_REDIS_CACHE: redis://erp-redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://erp-redis-queue:6379
+    depends_on:
+      erp-configurator:
+        condition: service_completed_successfully
+    volumes:
+      - erp-sites:/home/frappe/frappe-bench/sites
+      - erp-logs:/home/frappe/frappe-bench/logs
+    networks:
+      - crepro
+
+  erp-queue-long:
+    image: frappe/erpnext:v15.124.3
+    profiles: ["erp"]
+    command: ["bench", "worker", "--queue", "long,default,short"]
+    environment:
+      FRAPPE_REDIS_CACHE: redis://erp-redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://erp-redis-queue:6379
+    depends_on:
+      erp-configurator:
+        condition: service_completed_successfully
+    volumes:
+      - erp-sites:/home/frappe/frappe-bench/sites
+      - erp-logs:/home/frappe/frappe-bench/logs
+    networks:
+      - crepro
+
+  erp-scheduler:
+    image: frappe/erpnext:v15.124.3
+    profiles: ["erp"]
+    command: ["bench", "schedule"]
+    depends_on:
+      erp-configurator:
+        condition: service_completed_successfully
+    volumes:
+      - erp-sites:/home/frappe/frappe-bench/sites
+      - erp-logs:/home/frappe/frappe-bench/logs
+    networks:
+      - crepro
+
+volumes:
+  erp-db-data:
+  erp-redis-queue-data:
+  erp-sites:
+  erp-logs:
+
+networks:
+  crepro:
+    driver: bridge
