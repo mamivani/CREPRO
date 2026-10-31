@@ -1,7 +1,7 @@
 [project]
 name = "crepro-lease"
 version = "0.1.0"
-description = "CREPRO lease service: lease lifecycle, rent schedules, and renewals"
+description = "CREPRO lease service: lease lifecycle, rent schedules, renewals, and resident records"
 requires-python = ">=3.12"
 dependencies = [
     "crepro-common",

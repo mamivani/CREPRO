@@ -6,6 +6,8 @@ exclude = [".venv", "sample_code", "vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
+# B008: FastAPI's Depends()/Header()/Query() are meant to be used as argument defaults.
+ignore = ["B008"]
 
 [tool.ruff.format]
 quote-style = "double"
