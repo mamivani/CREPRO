@@ -6,16 +6,104 @@ on:
   pull_request:
 
 jobs:
-  security-stub:
+  # SAST. ADR-010/Vol 5 S16 name CodeQL specifically, but this private repo's
+  # GitHub plan doesn't include GitHub Advanced Security (confirmed: the
+  # code-scanning default-setup API returns 403 "Code scanning is not enabled
+  # for this repository" -- the same class of plan limitation as Day 3's
+  # required-reviewer environments). Semgrep is the free, no-GHAS-required
+  # substitute with equivalent intent: static analysis that blocks merge.
+  sast:
     runs-on: ubuntu-latest
     steps:
-      - name: Day 1 stub
-        run: |
-          echo "Security scanning is stubbed for Day 1 (repo/CI/governance setup)."
-          echo "Day 4 (docs/plan/15-day-plan-solo.md) wires in and makes merge-blocking:"
-          echo "  - CodeQL (static analysis)"
-          echo "  - Dependabot (dependency vulnerabilities)"
-          echo "  - Secret scanning + push protection"
-          echo "  - Trivy container image scanning"
-          echo "This job exists now so the five-workflow structure (Vol 5 S15) is in"
-          echo "place and branch protection can reference it from Day 1 onward."
+      - uses: actions/checkout@v4
+
+      - name: Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/python
+            p/secrets
+
+  # Secret scanning. Same plan limitation as above (confirmed: PATCH
+  # security_and_analysis.secret_scanning returns 422 "Secret scanning is not
+  # available for this repository"). gitleaks is the free substitute, scanning
+  # the full clone (not just the diff) so a secret committed earlier and only
+  # touched incidentally in a PR is still caught.
+  secret-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # v3, not v2: v2 is a Node 20 action, and GitHub removed Node 20 from
+      # hosted runners entirely on 2026-09-16, so v2 no longer runs at all.
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          # No pull-requests: write granted above, so PR comments are off; the
+          # required status check failing is the actual gate, not the comment.
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+  # Container image scanning: build each image (same 12-target matrix as
+  # build.yml) and scan it before it goes anywhere. Fails on CRITICAL findings
+  # (Vol 5 S17: "Critical Vulnerabilities" is a DevSecOps merge-blocking gate).
+  container-scan:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: crepro-common
+            dockerfile: packages/crepro-common/Dockerfile
+          - name: identity
+            dockerfile: services/identity/Dockerfile
+          - name: tenant
+            dockerfile: services/tenant/Dockerfile
+          - name: property
+            dockerfile: services/property/Dockerfile
+          - name: lease
+            dockerfile: services/lease/Dockerfile
+          - name: reservation
+            dockerfile: services/reservation/Dockerfile
+          - name: payment
+            dockerfile: services/payment/Dockerfile
+          - name: document
+            dockerfile: services/document/Dockerfile
+          - name: utility
+            dockerfile: services/utility/Dockerfile
+          - name: maintenance
+            dockerfile: services/maintenance/Dockerfile
+          - name: reporting
+            dockerfile: services/reporting/Dockerfile
+          - name: erp_adapter
+            dockerfile: services/erp_adapter/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.target.name }} (local, for scanning only)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.target.dockerfile }}
+          push: false
+          load: true
+          tags: crepro/${{ matrix.target.name }}:scan
+          cache-from: type=gha,scope=${{ matrix.target.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: crepro/${{ matrix.target.name }}:scan
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
