@@ -1,0 +1,21 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: pubsub
+spec:
+  # Local-dev substitute for Dapr's component-type parity with the Day 3+ Azure
+  # deployment (pubsub.azure.servicebus.topics, ADR-013). NOT pubsub.in-memory:
+  # that component's state is scoped to a single Dapr sidecar process, so it
+  # cannot relay messages between different services' sidecars at all
+  # (verified against Dapr's own docs) — it would silently not work for the
+  # cross-service flow this platform needs (e.g. outbox relay -> erp_adapter,
+  # Days 10-11). pubsub.redis against the compose "redis" service is a real
+  # shared broker, so publish/subscribe actually crosses service boundaries
+  # locally, the same way it will in Dev/Prod.
+  type: pubsub.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: redis:6379
+    - name: redisPassword
+      value: ""

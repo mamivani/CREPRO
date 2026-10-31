@@ -1,0 +1,15 @@
+# Reference copies and local state: never part of a build context.
+sample_code/
+vendor/
+.git/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+.env.*
+
+# Docs and non-runtime assets don't need to be in any service image.
+docs/
+infra/
