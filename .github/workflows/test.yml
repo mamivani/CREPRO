@@ -1,12 +1,12 @@
-name: CI
+name: Test
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 jobs:
-  python:
+  pytest:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,14 +18,14 @@ jobs:
       - name: Install packages
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ruff
           python -m pip install -e packages/crepro-common[dev]
           for svc in services/*/; do python -m pip install -e "$svc[dev]"; done
 
-      - name: Lint
-        run: ruff check . && ruff format --check .
-
-      - name: Test
+      - name: Unit and integration tests
         run: |
           python -m pytest packages/crepro-common/tests
           for svc in services/*/; do python -m pytest "$svc/tests"; done
+
+      # Coverage gate (Domain 90% / APIs 80% / Utilities 90% / Critical workflows 95%,
+      # docs/plan/15-day-plan-solo.md) and contract tests against each service's OpenAPI
+      # schema land Day 6 and Day 9.

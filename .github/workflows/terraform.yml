@@ -1,0 +1,19 @@
+name: Terraform
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  terraform-stub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Day 1 stub
+        run: |
+          echo "No Terraform exists yet. Day 3 (docs/plan/15-day-plan-solo.md) adds Dev"
+          echo "infrastructure (resource group, Key Vault, PostgreSQL Flexible Server,"
+          echo "Storage, Container Registry, Container Apps environment, Service Bus)"
+          echo "and this workflow runs 'terraform plan' on pull requests and"
+          echo "'terraform apply' only on main after approval (ADR-009: Terraform-only,"
+          echo "no portal-created infrastructure)."

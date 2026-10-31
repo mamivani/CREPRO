@@ -12,7 +12,7 @@ Unified Property Operations Platform. Architecture, design and delivery plan for
 | [docs/plan](docs/plan) | Delivery plans, including the [15-day solo plan](docs/plan/15-day-plan-solo.md) |
 | [packages/crepro-common](packages/crepro-common) | Shared library: settings, tenant context, tenant-scoped entity base, in-memory repository, generic CRUD router, event envelope, app factory |
 | [services](services) | One FastAPI service per bounded context (see below) |
-| [.github/workflows](.github/workflows) | CI: ruff lint and pytest for every package |
+| [.github/workflows](.github/workflows) | CI/CD: `build`, `test`, `security`, `terraform`, `deploy` (Vol 5 §15); only `build` and `test` have real logic so far (lint + pytest for every package), the other three are Day 1 stubs per the [15-day plan](docs/plan/15-day-plan-solo.md) |
 | `vendor/erpnext` | Local, untracked copy of the upstream financial system (reference only, not part of the repo) |
 | `sample_code/` | Local, untracked reference code used for analysis (not part of the repo) |
 
