@@ -23,7 +23,9 @@ def test_create_and_list_property() -> None:
 
     created = client.post("/api/v1/properties", json=payload, headers=headers)
     assert created.status_code == 201
-    assert created.json()["status"] == "available"
+    # DELIBERATE: verifying Day 4's failing-test merge gate (not a real bug);
+    # this branch/PR will be closed without merging once confirmed blocked.
+    assert created.json()["status"] == "definitely-not-the-real-status"
 
     listed = client.get("/api/v1/properties", headers=headers)
     assert listed.status_code == 200
