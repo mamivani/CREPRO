@@ -83,8 +83,10 @@ apply (Vol 4 §16), per ADR-009 (Terraform-only, no portal changes).
 
 Planning and design are done. Every service has a real tenant-isolated CRUD surface over its
 core domain entities (in-memory, pending a database), is containerized (Vol 1 §9.3), and runs
-locally with its own Dapr sidecar for pub/sub. The Dev Azure environment is provisioned by
-Terraform through CI/CD (no portal changes). CI builds and lints every image and runs every
-test suite; branch protection requires both to pass. Next steps are the frontend (Next.js,
-ADR-003), wiring real persistence into the services, auth, and the ERP adapter's
+locally with its own Dapr sidecar for pub/sub. The Dev Azure environment is live, provisioned by
+Terraform through CI/CD (no portal changes): resource group, private VNet-integrated PostgreSQL
+Flexible Server, Key Vault, Storage, Container Registry, a Container Apps environment, and a
+Service Bus namespace with the `erp-events` topic. CI builds and lints every image and runs
+every test suite; branch protection requires both to pass. Next steps are the frontend
+(Next.js, ADR-003), wiring real persistence into the services, auth, and the ERP adapter's
 push/reconciliation workers, following the [15-day plan](docs/plan/15-day-plan-solo.md).
