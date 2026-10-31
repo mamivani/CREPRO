@@ -16,7 +16,8 @@ Unified Property Operations Platform. Architecture, design and delivery plan for
 | [dapr/components](dapr/components) | Dapr pub/sub component for local dev (`pubsub.redis`, not `pubsub.in-memory` — see the comment in `pubsub.yaml` for why) |
 | [docker-compose.yml](docker-compose.yml) | Local stack: Postgres, Redis, every service with its own Dapr sidecar, and the external ERP behind the `erp` profile |
 | [infra/terraform/environments/dev](infra/terraform/environments/dev) | Terraform for the Dev Azure environment: resource group, private VNet-integrated PostgreSQL Flexible Server, Key Vault, Storage, Container Registry, a Container Apps environment (no apps deployed yet — Day 14), and a Service Bus Standard namespace with the `erp-events` topic (ADR-013) |
-| [.github/workflows](.github/workflows) | CI/CD: `build`, `test`, `security`, `terraform`, `deploy` (Vol 5 §15). `build` lints and builds every service image in a matrix; `test` runs pytest for every package; `terraform` runs a real `plan` on every PR/push and `apply` on manual dispatch (the Vol 4 §16 approval gate — this repo's plan doesn't support required-reviewer environments, so the gate is a human explicitly triggering the apply after reading the plan); `security`/`deploy` are still Day 1 stubs |
+| [.github/workflows](.github/workflows) | CI/CD: `build`, `test`, `security`, `terraform`, `deploy` (Vol 5 §15). `build` lints and builds every service image in a matrix; `test` runs pytest per package with a 90% coverage gate; `security` runs Semgrep (SAST), gitleaks (secrets), and Trivy (12-image container scan, fails on fixable CRITICAL findings) — substitutes for CodeQL/native secret scanning, which need GitHub Advanced Security, not available on this private repo's plan; `terraform` runs a real `plan` on every PR/push and `apply` on manual dispatch (the Vol 4 §16 approval gate — this repo's plan doesn't support required-reviewer environments, so the gate is a human explicitly triggering the apply after reading the plan); `deploy` is still a Day 1 stub |
+| [.github/dependabot.yml](.github/dependabot.yml) | Weekly pip/docker/github-actions dependency updates across every package; vulnerability alerts and automated security fixes enabled |
 | `vendor/erpnext` | Local, untracked copy of the upstream financial system (reference only, not part of the repo) |
 | `sample_code/` | Local, untracked reference code used for analysis (not part of the repo) |
 
@@ -86,7 +87,10 @@ core domain entities (in-memory, pending a database), is containerized (Vol 1 §
 locally with its own Dapr sidecar for pub/sub. The Dev Azure environment is live, provisioned by
 Terraform through CI/CD (no portal changes): resource group, private VNet-integrated PostgreSQL
 Flexible Server, Key Vault, Storage, Container Registry, a Container Apps environment, and a
-Service Bus namespace with the `erp-events` topic. CI builds and lints every image and runs
-every test suite; branch protection requires both to pass. Next steps are the frontend
+Service Bus namespace with the `erp-events` topic. Every PR is gated on lint, a 90% coverage
+threshold per package, all 12 images building, and three security scans (Semgrep, gitleaks,
+Trivy) — branch protection enforces all of it, including for admins, and merge is blocked on a
+failing test or a fixable critical vulnerability (verified directly: seeded both in throwaway
+PRs and confirmed GitHub refused to merge even with `--admin`). Next steps are the frontend
 (Next.js, ADR-003), wiring real persistence into the services, auth, and the ERP adapter's
 push/reconciliation workers, following the [15-day plan](docs/plan/15-day-plan-solo.md).
