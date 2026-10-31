@@ -1,19 +1,68 @@
 name: Terraform
 
 on:
+  pull_request:
   push:
     branches: [main, develop]
-  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_USE_OIDC: "true"
+  TF_IN_AUTOMATION: "true"
+
+defaults:
+  run:
+    working-directory: infra/terraform/environments/dev
 
 jobs:
-  terraform-stub:
+  # Runs on every PR, push, and manual dispatch, so a plan is always visible
+  # (including post-merge drift detection) before anyone chooses to apply it.
+  plan:
     runs-on: ubuntu-latest
     steps:
-      - name: Day 1 stub
-        run: |
-          echo "No Terraform exists yet. Day 3 (docs/plan/15-day-plan-solo.md) adds Dev"
-          echo "infrastructure (resource group, Key Vault, PostgreSQL Flexible Server,"
-          echo "Storage, Container Registry, Container Apps environment, Service Bus)"
-          echo "and this workflow runs 'terraform plan' on pull requests and"
-          echo "'terraform apply' only on main after approval (ADR-009: Terraform-only,"
-          echo "no portal-created infrastructure)."
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -diff
+
+      - name: Terraform init
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        run: terraform plan -input=false -no-color
+
+  # Vol 4 S16's pipeline is Plan -> Approval Gate -> Apply. Required-reviewer
+  # environment protection needs a paid GitHub plan this repo doesn't have, so
+  # the approval gate here is the act of a human explicitly running this
+  # workflow via `gh workflow run terraform.yml` or the Actions UI, after
+  # reading the plan output above -- apply never runs automatically on push.
+  apply:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Terraform init
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Terraform apply
+        run: terraform apply -input=false -auto-approve

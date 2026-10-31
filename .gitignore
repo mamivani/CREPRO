@@ -23,6 +23,8 @@ node_modules/
 *.tfstate
 *.tfstate.*
 *.tfvars
+*.tfplan
+tfplan*
 crash.log
 
 # OS and editors
