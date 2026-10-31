@@ -1,0 +1,21 @@
+name: Security
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Day 1 stub
+        run: |
+          echo "Security scanning is stubbed for Day 1 (repo/CI/governance setup)."
+          echo "Day 4 (docs/plan/15-day-plan-solo.md) wires in and makes merge-blocking:"
+          echo "  - CodeQL (static analysis)"
+          echo "  - Dependabot (dependency vulnerabilities)"
+          echo "  - Secret scanning + push protection"
+          echo "  - Trivy container image scanning"
+          echo "This job exists now so the five-workflow structure (Vol 5 S15) is in"
+          echo "place and branch protection can reference it from Day 1 onward."

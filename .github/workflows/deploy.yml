@@ -1,0 +1,17 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Day 1 stub
+        run: |
+          echo "No container images or Azure infrastructure exist yet. This workflow"
+          echo "stays a no-op until Day 14 (docs/plan/15-day-plan-solo.md), when it"
+          echo "deploys every service, the reconciliation job, and the external ERP to"
+          echo "Dev Container Apps through Terraform apply and runs smoke tests."

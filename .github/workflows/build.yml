@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff
+          python -m pip install -e packages/crepro-common[dev]
+          for svc in services/*/; do python -m pip install -e "$svc[dev]"; done
+
+      - name: Lint and format check
+        run: ruff check . && ruff format --check .
+
+      # Container image build lands Day 2 (docs/plan/15-day-plan-solo.md): one
+      # OCI-compliant image per service, built here in a matrix and pushed to
+      # Azure Container Registry once Day 3's registry exists.
