@@ -2,7 +2,7 @@
 # OCI-compliant, multi-stage image for the document service (Vol 1 S9.3).
 # Build context is the repo root: docker build -f services/document/Dockerfile .
 
-FROM python:3.13-slim AS builder
+FROM python:3.15-slim AS builder
 
 WORKDIR /build
 RUN python -m venv /opt/venv
@@ -17,7 +17,7 @@ COPY services/document ./services/document
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir ./packages/crepro-common ./services/document
 
-FROM python:3.13-slim AS runtime
+FROM python:3.15-slim AS runtime
 
 RUN useradd --create-home --uid 1000 app
 COPY --from=builder /opt/venv /opt/venv
