@@ -55,7 +55,7 @@ jobs:
   # build.yml) and scan it before it goes anywhere. Fails on CRITICAL findings
   # (Vol 5 S17: "Critical Vulnerabilities" is a DevSecOps merge-blocking gate).
   container-scan:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     strategy:
       fail-fast: false
       matrix:
