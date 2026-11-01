@@ -5,7 +5,7 @@
 # the installed package can be inspected/reused as a base layer if needed.
 # Build context is the repo root: docker build -f packages/crepro-common/Dockerfile .
 
-FROM python:3.13-slim AS builder
+FROM python:3.15-slim AS builder
 
 WORKDIR /build
 RUN python -m venv /opt/venv
@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 # itself, before any service gets a chance to depend on it.
 RUN pytest packages/crepro-common/tests
 
-FROM python:3.13-slim AS runtime
+FROM python:3.15-slim AS runtime
 
 RUN useradd --create-home --uid 1000 app
 COPY --from=builder /opt/venv /opt/venv
