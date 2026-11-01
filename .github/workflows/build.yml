@@ -64,7 +64,7 @@ jobs:
       # Build only, no push: Azure Container Registry doesn't exist until Day 3
       # (Terraform). Day 3+ adds login and push here once it does.
       - name: Build ${{ matrix.target.name }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.target.dockerfile }}
