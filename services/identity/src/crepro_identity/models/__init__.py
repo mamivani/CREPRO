@@ -6,8 +6,9 @@ maintenance roles). Accountant and resident-portal are added since the platform 
 needs ERP-adjacent and self-service roles the sample source left to its ERP backend.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
+from uuid import UUID
 
 from crepro_common import TenantScopedEntity
 
@@ -36,3 +37,14 @@ class User(TenantScopedEntity):
     role: UserRole
     status: UserStatus = UserStatus.INVITED
     last_login_at: datetime | None = None
+
+
+class FederatedIdentity(TenantScopedEntity):
+    """External federated identity linked to a user."""
+
+    user_id: UUID
+    provider: str  # "microsoft", "google", "apple"
+    provider_user_id: str  # Sub claim or equivalent
+    provider_email: str | None = None
+    last_login_at: datetime | None = None
+
