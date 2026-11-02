@@ -60,7 +60,11 @@ jobs:
           fetch-depth: 0
 
       - name: Install gitleaks
-        shell: pwsh
+        # Windows PowerShell (powershell.exe, built into the OS), not pwsh
+        # (PowerShell 7, installed as an MSIX/AppX package): AppX packages are
+        # ACL'd to the installing user, so a Windows Service account like
+        # NETWORK SERVICE can't launch pwsh.exe at all.
+        shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           $zipUrl = "https://github.com/gitleaks/gitleaks/releases/download/v$env:GITLEAKS_VERSION/gitleaks_$($env:GITLEAKS_VERSION)_windows_x64.zip"
