@@ -13,7 +13,7 @@ jobs:
   # required-reviewer environments). Semgrep is the free, no-GHAS-required
   # substitute with equivalent intent: static analysis that blocks merge.
   sast:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
 
@@ -31,7 +31,7 @@ jobs:
   # the full clone (not just the diff) so a secret committed earlier and only
   # touched incidentally in a PR is still caught.
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
       pull-requests: read
