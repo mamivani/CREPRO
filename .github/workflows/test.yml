@@ -9,13 +9,10 @@ defaults:
   run:
     shell: bash
 
-# Hosted-first, self-hosted-fallback: see build.yml's top-of-file comment for
-# why the aggregator (`pytest`) runs on self-hosted rather than
-# ubuntu-latest, and why a per-package matrix collapses to one required
-# status check instead of twelve.
+# All jobs run on self-hosted runners: see build.yml's top-of-file comment.
 jobs:
-  pytest-hosted:
-    runs-on: ubuntu-latest
+  pytest:
+    runs-on: self-hosted
     strategy:
       fail-fast: false
       matrix:
@@ -80,81 +77,3 @@ jobs:
             --cov-fail-under=90
 
       # Contract tests against each service's OpenAPI schema land Day 9.
-
-  pytest-self-hosted:
-    needs: pytest-hosted
-    if: always() && needs.pytest-hosted.result == 'failure'
-    runs-on: self-hosted
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - name: crepro-common
-            path: packages/crepro-common
-            package: crepro_common
-          - name: identity
-            path: services/identity
-            package: crepro_identity
-          - name: tenant
-            path: services/tenant
-            package: crepro_tenant
-          - name: property
-            path: services/property
-            package: crepro_property
-          - name: lease
-            path: services/lease
-            package: crepro_lease
-          - name: reservation
-            path: services/reservation
-            package: crepro_reservation
-          - name: payment
-            path: services/payment
-            package: crepro_payment
-          - name: document
-            path: services/document
-            package: crepro_document
-          - name: utility
-            path: services/utility
-            package: crepro_utility
-          - name: maintenance
-            path: services/maintenance
-            package: crepro_maintenance
-          - name: reporting
-            path: services/reporting
-            package: crepro_reporting
-          - name: erp_adapter
-            path: services/erp_adapter
-            package: crepro_erp_adapter
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install packages
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e packages/crepro-common[dev]
-          if [ "${{ matrix.target.path }}" != "packages/crepro-common" ]; then
-            python -m pip install -e "${{ matrix.target.path }}[dev]"
-          fi
-
-      - name: Unit and integration tests (coverage >= 90%)
-        run: |
-          python -m pytest "${{ matrix.target.path }}/tests" \
-            --cov="${{ matrix.target.package }}" \
-            --cov-report=term-missing \
-            --cov-fail-under=90
-
-  pytest:
-    needs: [pytest-hosted, pytest-self-hosted]
-    if: always()
-    runs-on: self-hosted
-    steps:
-      - name: Require the hosted test run or its self-hosted fallback to have succeeded
-        run: |
-          if [ "${{ needs.pytest-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          if [ "${{ needs.pytest-self-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          echo "::error::Neither the GitHub-hosted pytest run nor its self-hosted fallback succeeded."
-          exit 1

@@ -9,15 +9,14 @@ defaults:
   run:
     shell: bash
 
-# Hosted-first, self-hosted-fallback: see build.yml's top-of-file comment.
+# All jobs run on self-hosted runners: see build.yml's top-of-file comment.
 #
-# sast/secret-scan use their original Linux-native actions (semgrep-action,
-# gitleaks-action) on the hosted path; the self-hosted path uses the
-# Windows-compatible direct-install workaround those actions can't do on
-# Windows (see git history for why: semgrep-action is a Docker container
-# action, which Windows runners refuse to run at all; gitleaks-action's
-# installer is hardcoded to a `.tar.gz` asset gitleaks has never published
-# for Windows).
+# sast/secret-scan use Windows-compatible direct-install steps rather than
+# their Linux-native actions (semgrep-action, gitleaks-action), which don't
+# work on Windows runners (see git history for why: semgrep-action is a
+# Docker container action, which Windows runners refuse to run at all;
+# gitleaks-action's installer is hardcoded to a `.tar.gz` asset gitleaks has
+# never published for Windows).
 jobs:
   # SAST. ADR-010/Vol 5 S16 name CodeQL specifically, but this private repo's
   # GitHub plan doesn't include GitHub Advanced Security (confirmed: the
@@ -25,22 +24,7 @@ jobs:
   # for this repository" -- the same class of plan limitation as Day 3's
   # required-reviewer environments). Semgrep is the free, no-GHAS-required
   # substitute with equivalent intent: static analysis that blocks merge.
-  sast-hosted:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Semgrep
-        uses: semgrep/semgrep-action@v1
-        with:
-          config: >-
-            p/security-audit
-            p/python
-            p/secrets
-
-  sast-self-hosted:
-    needs: sast-hosted
-    if: always() && needs.sast-hosted.result == 'failure'
+  sast:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
@@ -56,22 +40,6 @@ jobs:
             --config p/secrets \
             --error
 
-  sast:
-    needs: [sast-hosted, sast-self-hosted]
-    if: always()
-    runs-on: self-hosted
-    steps:
-      - name: Require the hosted sast run or its self-hosted fallback to have succeeded
-        run: |
-          if [ "${{ needs.sast-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          if [ "${{ needs.sast-self-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          echo "::error::Neither the GitHub-hosted sast run nor its self-hosted fallback succeeded."
-          exit 1
-
   # Secret scanning. Same plan limitation as above (confirmed: PATCH
   # security_and_analysis.secret_scanning returns 422 "Secret scanning is not
   # available for this repository"). gitleaks is the free substitute, scanning
@@ -82,30 +50,7 @@ jobs:
   # sample_code/ (reference copies of third-party code, not part of CREPRO --
   # see README) -- without it, scanning their git history turns up
   # entropy-based false positives in placeholder doctype JSON.
-  secret-scan-hosted:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    env:
-      GITLEAKS_CONFIG: .gitleaks.toml
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
-          # No pull-requests: write granted above, so PR comments are off; the
-          # required status check failing is the actual gate, not the comment.
-          GITLEAKS_ENABLE_COMMENTS: "false"
-
-  secret-scan-self-hosted:
-    needs: secret-scan-hosted
-    if: always() && needs.secret-scan-hosted.result == 'failure'
+  secret-scan:
     runs-on: self-hosted
     env:
       GITLEAKS_VERSION: "8.24.3"
@@ -128,147 +73,59 @@ jobs:
       - name: gitleaks
         run: gitleaks detect --source . --config .gitleaks.toml --redact -v --report-format sarif --report-path gitleaks-results.sarif
 
-  secret-scan:
-    needs: [secret-scan-hosted, secret-scan-self-hosted]
-    if: always()
-    runs-on: self-hosted
-    steps:
-      - name: Require the hosted secret scan or its self-hosted fallback to have succeeded
-        run: |
-          if [ "${{ needs.secret-scan-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          if [ "${{ needs.secret-scan-self-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          echo "::error::Neither the GitHub-hosted secret-scan run nor its self-hosted fallback succeeded."
-          exit 1
-
   # Container image scanning: build each image (same 12-target matrix as
   # build.yml) and scan it before it goes anywhere. Fails on CRITICAL findings
   # (Vol 5 S17: "Critical Vulnerabilities" is a DevSecOps merge-blocking gate).
-  container-scan-hosted:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - name: crepro-common
-            dockerfile: packages/crepro-common/Dockerfile
-          - name: identity
-            dockerfile: services/identity/Dockerfile
-          - name: tenant
-            dockerfile: services/tenant/Dockerfile
-          - name: property
-            dockerfile: services/property/Dockerfile
-          - name: lease
-            dockerfile: services/lease/Dockerfile
-          - name: reservation
-            dockerfile: services/reservation/Dockerfile
-          - name: payment
-            dockerfile: services/payment/Dockerfile
-          - name: document
-            dockerfile: services/document/Dockerfile
-          - name: utility
-            dockerfile: services/utility/Dockerfile
-          - name: maintenance
-            dockerfile: services/maintenance/Dockerfile
-          - name: reporting
-            dockerfile: services/reporting/Dockerfile
-          - name: erp_adapter
-            dockerfile: services/erp_adapter/Dockerfile
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: docker/setup-buildx-action@v4
-
-      - name: Build ${{ matrix.target.name }} (local, for scanning only)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.target.dockerfile }}
-          push: false
-          load: true
-          tags: crepro/${{ matrix.target.name }}:scan
-          cache-from: type=gha,scope=${{ matrix.target.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
-
-      - name: Trivy scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: crepro/${{ matrix.target.name }}:scan
-          severity: CRITICAL
-          exit-code: "1"
-          ignore-unfixed: true
-
-  container-scan-self-hosted:
-    needs: container-scan-hosted
-    if: always() && needs.container-scan-hosted.result == 'failure'
-    runs-on: self-hosted
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - name: crepro-common
-            dockerfile: packages/crepro-common/Dockerfile
-          - name: identity
-            dockerfile: services/identity/Dockerfile
-          - name: tenant
-            dockerfile: services/tenant/Dockerfile
-          - name: property
-            dockerfile: services/property/Dockerfile
-          - name: lease
-            dockerfile: services/lease/Dockerfile
-          - name: reservation
-            dockerfile: services/reservation/Dockerfile
-          - name: payment
-            dockerfile: services/payment/Dockerfile
-          - name: document
-            dockerfile: services/document/Dockerfile
-          - name: utility
-            dockerfile: services/utility/Dockerfile
-          - name: maintenance
-            dockerfile: services/maintenance/Dockerfile
-          - name: reporting
-            dockerfile: services/reporting/Dockerfile
-          - name: erp_adapter
-            dockerfile: services/erp_adapter/Dockerfile
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: docker/setup-buildx-action@v4
-
-      - name: Build ${{ matrix.target.name }} (local, for scanning only)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.target.dockerfile }}
-          push: false
-          load: true
-          tags: crepro/${{ matrix.target.name }}:scan
-          cache-from: type=gha,scope=${{ matrix.target.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
-
-      - name: Trivy scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: crepro/${{ matrix.target.name }}:scan
-          severity: CRITICAL
-          exit-code: "1"
-          ignore-unfixed: true
-
   container-scan:
-    needs: [container-scan-hosted, container-scan-self-hosted]
-    if: always()
     runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: crepro-common
+            dockerfile: packages/crepro-common/Dockerfile
+          - name: identity
+            dockerfile: services/identity/Dockerfile
+          - name: tenant
+            dockerfile: services/tenant/Dockerfile
+          - name: property
+            dockerfile: services/property/Dockerfile
+          - name: lease
+            dockerfile: services/lease/Dockerfile
+          - name: reservation
+            dockerfile: services/reservation/Dockerfile
+          - name: payment
+            dockerfile: services/payment/Dockerfile
+          - name: document
+            dockerfile: services/document/Dockerfile
+          - name: utility
+            dockerfile: services/utility/Dockerfile
+          - name: maintenance
+            dockerfile: services/maintenance/Dockerfile
+          - name: reporting
+            dockerfile: services/reporting/Dockerfile
+          - name: erp_adapter
+            dockerfile: services/erp_adapter/Dockerfile
     steps:
-      - name: Require the hosted scan or its self-hosted fallback to have succeeded
-        run: |
-          if [ "${{ needs.container-scan-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          if [ "${{ needs.container-scan-self-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          echo "::error::Neither the GitHub-hosted container-scan run nor its self-hosted fallback succeeded."
-          exit 1
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build ${{ matrix.target.name }} (local, for scanning only)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.target.dockerfile }}
+          push: false
+          load: true
+          tags: crepro/${{ matrix.target.name }}:scan
+          cache-from: type=gha,scope=${{ matrix.target.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: crepro/${{ matrix.target.name }}:scan
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true

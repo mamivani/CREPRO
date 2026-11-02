@@ -9,42 +9,14 @@ defaults:
   run:
     shell: bash
 
-# Hosted-first, self-hosted-fallback: see build.yml's top-of-file comment.
+# All jobs run on self-hosted runners: see build.yml's top-of-file comment.
 jobs:
-  deploy-stub-hosted:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Day 1 stub
-        run: |
-          echo "No container images or Azure infrastructure exist yet. This workflow"
-          echo "stays a no-op until Day 14 (docs/plan/15-day-plan-solo.md), when it"
-          echo "deploys every service, the reconciliation job, and the external ERP to"
-          echo "Dev Container Apps through Terraform apply and runs smoke tests."
-
-  deploy-stub-self-hosted:
-    needs: deploy-stub-hosted
-    if: always() && needs.deploy-stub-hosted.result == 'failure'
-    runs-on: self-hosted
-    steps:
-      - name: Day 1 stub
-        run: |
-          echo "No container images or Azure infrastructure exist yet. This workflow"
-          echo "stays a no-op until Day 14 (docs/plan/15-day-plan-solo.md), when it"
-          echo "deploys every service, the reconciliation job, and the external ERP to"
-          echo "Dev Container Apps through Terraform apply and runs smoke tests."
-
   deploy-stub:
-    needs: [deploy-stub-hosted, deploy-stub-self-hosted]
-    if: always()
     runs-on: self-hosted
     steps:
-      - name: Require the hosted stub or its self-hosted fallback to have succeeded
+      - name: Day 1 stub
         run: |
-          if [ "${{ needs.deploy-stub-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          if [ "${{ needs.deploy-stub-self-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          echo "::error::Neither the GitHub-hosted deploy-stub run nor its self-hosted fallback succeeded."
-          exit 1
+          echo "No container images or Azure infrastructure exist yet. This workflow"
+          echo "stays a no-op until Day 14 (docs/plan/15-day-plan-solo.md), when it"
+          echo "deploys every service, the reconciliation job, and the external ERP to"
+          echo "Dev Container Apps through Terraform apply and runs smoke tests."

@@ -22,101 +22,46 @@ defaults:
     shell: bash
     working-directory: infra/terraform/environments/dev
 
-# Hosted-first, self-hosted-fallback: see build.yml's top-of-file comment.
+# All jobs run on self-hosted runners: see build.yml's top-of-file comment.
 jobs:
   # Runs on every PR, push, and manual dispatch, so a plan is always visible
   # (including post-merge drift detection) before anyone chooses to apply it.
-  plan-hosted:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "~> 1.9"
-
-      - name: Terraform fmt check
-        run: terraform fmt -check -diff
-
-      - name: Check Azure credentials
-        id: azure-auth
-        run: |
-          if [[ -n "$ARM_CLIENT_ID" && -n "$ARM_SUBSCRIPTION_ID" && -n "$ARM_TENANT_ID" ]]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Azure credentials are unavailable; validating Terraform without the remote backend and skipping plan."
-          fi
-
-      - name: Terraform init
-        if: steps.azure-auth.outputs.configured == 'true'
-        run: terraform init -backend-config=backend.hcl
-
-      - name: Terraform init without backend
-        if: steps.azure-auth.outputs.configured != 'true'
-        run: terraform init -backend=false
-
-      - name: Terraform validate
-        run: terraform validate
-
-      - name: Terraform plan
-        if: steps.azure-auth.outputs.configured == 'true'
-        run: terraform plan -input=false -no-color
-
-  plan-self-hosted:
-    needs: plan-hosted
-    if: always() && needs.plan-hosted.result == 'failure'
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "~> 1.9"
-
-      - name: Terraform fmt check
-        run: terraform fmt -check -diff
-
-      - name: Check Azure credentials
-        id: azure-auth
-        run: |
-          if [[ -n "$ARM_CLIENT_ID" && -n "$ARM_SUBSCRIPTION_ID" && -n "$ARM_TENANT_ID" ]]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Azure credentials are unavailable; validating Terraform without the remote backend and skipping plan."
-          fi
-
-      - name: Terraform init
-        if: steps.azure-auth.outputs.configured == 'true'
-        run: terraform init -backend-config=backend.hcl
-
-      - name: Terraform init without backend
-        if: steps.azure-auth.outputs.configured != 'true'
-        run: terraform init -backend=false
-
-      - name: Terraform validate
-        run: terraform validate
-
-      - name: Terraform plan
-        if: steps.azure-auth.outputs.configured == 'true'
-        run: terraform plan -input=false -no-color
-
   plan:
-    needs: [plan-hosted, plan-self-hosted]
-    if: always()
     runs-on: self-hosted
     steps:
-      - name: Require the hosted plan or its self-hosted fallback to have succeeded
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -diff
+
+      - name: Check Azure credentials
+        id: azure-auth
         run: |
-          if [ "${{ needs.plan-hosted.result }}" = "success" ]; then
-            exit 0
+          if [[ -n "$ARM_CLIENT_ID" && -n "$ARM_SUBSCRIPTION_ID" && -n "$ARM_TENANT_ID" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Azure credentials are unavailable; validating Terraform without the remote backend and skipping plan."
           fi
-          if [ "${{ needs.plan-self-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          echo "::error::Neither the GitHub-hosted plan run nor its self-hosted fallback succeeded."
-          exit 1
+
+      - name: Terraform init
+        if: steps.azure-auth.outputs.configured == 'true'
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Terraform init without backend
+        if: steps.azure-auth.outputs.configured != 'true'
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        if: steps.azure-auth.outputs.configured == 'true'
+        run: terraform plan -input=false -no-color
 
   # Vol 4 S16's pipeline is Plan -> Approval Gate -> Apply. Required-reviewer
   # environment protection needs a paid GitHub plan this repo doesn't have, so
@@ -130,51 +75,18 @@ jobs:
   # for plan -- not worth it for a restriction workflow_dispatch already
   # provides (an explicit human action) on a billing plan that can't use this
   # environment's one real benefit (required reviewers) anyway.
-  apply-hosted:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "~> 1.9"
-
-      - name: Terraform init
-        run: terraform init -backend-config=backend.hcl
-
-      - name: Terraform apply
-        run: terraform apply -input=false -auto-approve
-
-  apply-self-hosted:
-    needs: apply-hosted
-    if: github.event_name == 'workflow_dispatch' && always() && needs.apply-hosted.result == 'failure'
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "~> 1.9"
-
-      - name: Terraform init
-        run: terraform init -backend-config=backend.hcl
-
-      - name: Terraform apply
-        run: terraform apply -input=false -auto-approve
-
   apply:
-    if: always() && github.event_name == 'workflow_dispatch'
-    needs: [apply-hosted, apply-self-hosted]
+    if: github.event_name == 'workflow_dispatch'
     runs-on: self-hosted
     steps:
-      - name: Require the hosted apply or its self-hosted fallback to have succeeded
-        run: |
-          if [ "${{ needs.apply-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          if [ "${{ needs.apply-self-hosted.result }}" = "success" ]; then
-            exit 0
-          fi
-          echo "::error::Neither the GitHub-hosted apply run nor its self-hosted fallback succeeded."
-          exit 1
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Terraform init
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Terraform apply
+        run: terraform apply -input=false -auto-approve
