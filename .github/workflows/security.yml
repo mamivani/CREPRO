@@ -17,29 +17,24 @@ jobs:
   # required-reviewer environments). Semgrep is the free, no-GHAS-required
   # substitute with equivalent intent: static analysis that blocks merge.
   #
-  # Run via the semgrep CLI directly rather than semgrep/semgrep-action: that
-  # action executes as a Docker *container action*
-  # (docker://returntocorp/semgrep-agent:v1), and the GitHub Actions runner
-  # flatly refuses to run container actions on a Windows runner
-  # ("System.NotSupportedException: Container action is only supported on
-  # Linux") -- not something any config on our side can change. semgrep itself
-  # ships a native Windows wheel, so installing and invoking the CLI directly
-  # sidesteps the action's Linux-only container requirement entirely.
+  # GitHub-hosted only (no self-hosted fallback): semgrep/semgrep-action runs
+  # as a Docker *container action*, which the GitHub Actions runner refuses
+  # to run on Windows at all ("Container action is only supported on Linux").
+  # It works fine here since ubuntu-latest supports container actions
+  # natively; a self-hosted fallback would need the pip-based CLI workaround
+  # instead (see git history), which isn't worth it for a job this cheap.
   sast:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Semgrep
-        run: python -m pip install semgrep
-
       - name: Semgrep
-        run: |
-          semgrep scan \
-            --config p/security-audit \
-            --config p/python \
-            --config p/secrets \
-            --error
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/python
+            p/secrets
 
   # Secret scanning. Same plan limitation as above (confirmed: PATCH
   # security_and_analysis.secret_scanning returns 422 "Secret scanning is not
@@ -47,39 +42,101 @@ jobs:
   # the full clone (not just the diff) so a secret committed earlier and only
   # touched incidentally in a PR is still caught.
   #
-  # Installed directly rather than via gitleaks/gitleaks-action: that action's
-  # installer (src/gitleaks.js, function downloadURL) unconditionally requests
-  # a `.tar.gz` asset, but gitleaks has only ever published `.zip` for Windows
-  # (checked v8.18.1 through the current v8.24.3) -- the action cannot install
-  # on a Windows runner at all, on any pinned version. Not a self-hosted-runner
-  # config issue; it only surfaced once the fleet moved off ubuntu-latest.
+  # GitHub-hosted only (no self-hosted fallback): gitleaks-action's installer
+  # is hardcoded to request a `.tar.gz` asset, and gitleaks has only ever
+  # published `.zip` for Windows -- it can't install on a self-hosted Windows
+  # runner on any version (see git history for the direct-install
+  # workaround). Works fine here since ubuntu-latest always has `.tar.gz`.
+  #
+  # GITLEAKS_CONFIG points at .gitleaks.toml, which allowlists vendor/ and
+  # sample_code/ (reference copies of third-party code, not part of CREPRO --
+  # see README) -- without it, scanning their git history turns up
+  # entropy-based false positives in placeholder doctype JSON.
   secret-scan:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     env:
-      GITLEAKS_VERSION: "8.24.3"
+      GITLEAKS_CONFIG: .gitleaks.toml
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Install gitleaks
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $zipUrl = "https://github.com/gitleaks/gitleaks/releases/download/v$env:GITLEAKS_VERSION/gitleaks_$($env:GITLEAKS_VERSION)_windows_x64.zip"
-          $zipPath = Join-Path $env:RUNNER_TEMP "gitleaks.zip"
-          $installDir = Join-Path $env:RUNNER_TEMP "gitleaks"
-          Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
-          Expand-Archive -Path $zipPath -DestinationPath $installDir -Force
-          Add-Content -Path $env:GITHUB_PATH -Value $installDir
-
       - name: gitleaks
-        run: gitleaks detect --source . --redact -v --report-format sarif --report-path gitleaks-results.sarif
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          # No pull-requests: write granted above, so PR comments are off; the
+          # required status check failing is the actual gate, not the comment.
+          GITLEAKS_ENABLE_COMMENTS: "false"
 
   # Container image scanning: build each image (same 12-target matrix as
   # build.yml) and scan it before it goes anywhere. Fails on CRITICAL findings
   # (Vol 5 S17: "Critical Vulnerabilities" is a DevSecOps merge-blocking gate).
-  container-scan:
+  #
+  # Hosted-first, self-hosted-fallback (cost control): same pattern as
+  # build.yml's build-images -- `container-scan` is the required status
+  # check and passes as long as either path succeeded.
+  container-scan-hosted:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: crepro-common
+            dockerfile: packages/crepro-common/Dockerfile
+          - name: identity
+            dockerfile: services/identity/Dockerfile
+          - name: tenant
+            dockerfile: services/tenant/Dockerfile
+          - name: property
+            dockerfile: services/property/Dockerfile
+          - name: lease
+            dockerfile: services/lease/Dockerfile
+          - name: reservation
+            dockerfile: services/reservation/Dockerfile
+          - name: payment
+            dockerfile: services/payment/Dockerfile
+          - name: document
+            dockerfile: services/document/Dockerfile
+          - name: utility
+            dockerfile: services/utility/Dockerfile
+          - name: maintenance
+            dockerfile: services/maintenance/Dockerfile
+          - name: reporting
+            dockerfile: services/reporting/Dockerfile
+          - name: erp_adapter
+            dockerfile: services/erp_adapter/Dockerfile
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build ${{ matrix.target.name }} (local, for scanning only)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.target.dockerfile }}
+          push: false
+          load: true
+          tags: crepro/${{ matrix.target.name }}:scan
+          cache-from: type=gha,scope=${{ matrix.target.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: crepro/${{ matrix.target.name }}:scan
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  container-scan-self-hosted:
+    needs: container-scan-hosted
+    if: always() && needs.container-scan-hosted.result == 'failure'
     runs-on: self-hosted
     strategy:
       fail-fast: false
@@ -132,4 +189,20 @@ jobs:
           severity: CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+
+  container-scan:
+    needs: [container-scan-hosted, container-scan-self-hosted]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the hosted scan or its self-hosted fallback to have succeeded
+        run: |
+          if [ "${{ needs.container-scan-hosted.result }}" = "success" ]; then
+            exit 0
+          fi
+          if [ "${{ needs.container-scan-self-hosted.result }}" = "success" ]; then
+            exit 0
+          fi
+          echo "::error::Neither the GitHub-hosted container-scan run nor its self-hosted fallback succeeded."
+          exit 1
 

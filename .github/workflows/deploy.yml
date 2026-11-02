@@ -11,7 +11,7 @@ defaults:
 
 jobs:
   deploy-stub:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Day 1 stub
         run: |

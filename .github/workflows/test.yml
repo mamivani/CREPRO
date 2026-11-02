@@ -14,7 +14,7 @@ jobs:
   # in one service doesn't hide behind a single green "tests" check and
   # blocks only that package's branch-protection check.
   pytest:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:

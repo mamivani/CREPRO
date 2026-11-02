@@ -11,7 +11,7 @@ defaults:
 
 jobs:
   lint:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -25,9 +25,18 @@ jobs:
       - name: Lint and format check
         run: ruff check . && ruff format --check .
 
-  build-images:
+  # Hosted-first, self-hosted-fallback (cost control): try the free
+  # GitHub-hosted minutes first; if that run hits the account spending limit
+  # (or fails for any other reason) the self-hosted fallback picks up the
+  # same matrix. `build-images` is the required status check -- it passes as
+  # long as either path succeeded, so branch protection doesn't care which
+  # one it was. A caveat of this pattern: since GitHub Actions can't retry
+  # only the matrix entries that failed, a single failing image on the
+  # hosted runner re-runs the *entire* matrix on self-hosted, not just that
+  # one image.
+  build-images-hosted:
     needs: lint
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -72,4 +81,67 @@ jobs:
           tags: crepro/${{ matrix.target.name }}:ci
           cache-from: type=gha,scope=${{ matrix.target.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
+
+  build-images-self-hosted:
+    needs: [lint, build-images-hosted]
+    if: always() && needs.build-images-hosted.result == 'failure'
+    runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: crepro-common
+            dockerfile: packages/crepro-common/Dockerfile
+          - name: identity
+            dockerfile: services/identity/Dockerfile
+          - name: tenant
+            dockerfile: services/tenant/Dockerfile
+          - name: property
+            dockerfile: services/property/Dockerfile
+          - name: lease
+            dockerfile: services/lease/Dockerfile
+          - name: reservation
+            dockerfile: services/reservation/Dockerfile
+          - name: payment
+            dockerfile: services/payment/Dockerfile
+          - name: document
+            dockerfile: services/document/Dockerfile
+          - name: utility
+            dockerfile: services/utility/Dockerfile
+          - name: maintenance
+            dockerfile: services/maintenance/Dockerfile
+          - name: reporting
+            dockerfile: services/reporting/Dockerfile
+          - name: erp_adapter
+            dockerfile: services/erp_adapter/Dockerfile
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build ${{ matrix.target.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.target.dockerfile }}
+          push: false
+          tags: crepro/${{ matrix.target.name }}:ci
+          cache-from: type=gha,scope=${{ matrix.target.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
+
+  build-images:
+    needs: [build-images-hosted, build-images-self-hosted]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the hosted build or its self-hosted fallback to have succeeded
+        run: |
+          if [ "${{ needs.build-images-hosted.result }}" = "success" ]; then
+            exit 0
+          fi
+          if [ "${{ needs.build-images-self-hosted.result }}" = "success" ]; then
+            exit 0
+          fi
+          echo "::error::Neither the GitHub-hosted build-images run nor its self-hosted fallback succeeded."
+          exit 1
 

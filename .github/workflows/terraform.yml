@@ -26,7 +26,7 @@ jobs:
   # Runs on every PR, push, and manual dispatch, so a plan is always visible
   # (including post-merge drift detection) before anyone chooses to apply it.
   plan:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -76,7 +76,7 @@ jobs:
   # environment's one real benefit (required reviewers) anyway.
   apply:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
