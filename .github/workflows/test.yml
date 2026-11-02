@@ -5,6 +5,10 @@ on:
     branches: [main, develop]
   pull_request:
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # One job per package (same matrix shape as build.yml), so a coverage drop
   # in one service doesn't hide behind a single green "tests" check and

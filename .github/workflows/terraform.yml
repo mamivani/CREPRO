@@ -19,6 +19,7 @@ env:
 
 defaults:
   run:
+    shell: bash
     working-directory: infra/terraform/environments/dev
 
 jobs:

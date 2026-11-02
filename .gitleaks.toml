@@ -1,0 +1,19 @@
+# Gitleaks config for CREPRO's secret-scan job (.github/workflows/security.yml).
+#
+# `vendor/` and `sample_code/` are local, untracked reference copies of
+# third-party code (see README) -- gitignored today, but their git history
+# predates that and still contains them. Scanning that history only turns up
+# entropy-based false positives in placeholder doctype JSON (field names like
+# "response_key_list"), not real secrets. Excluded here the same way ruff
+# excludes them from lint (pyproject.toml: tool.ruff.exclude).
+title = "CREPRO gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored/reference code that is not part of CREPRO itself"
+paths = [
+  '''^vendor/''',
+  '''^sample_code/''',
+]
