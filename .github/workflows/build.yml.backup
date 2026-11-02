@@ -1,0 +1,74 @@
+name: Build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff
+          python -m pip install -e packages/crepro-common[dev]
+          for svc in services/*/; do python -m pip install -e "$svc[dev]"; done
+
+      - name: Lint and format check
+        run: ruff check . && ruff format --check .
+
+  build-images:
+    needs: lint
+    runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: crepro-common
+            dockerfile: packages/crepro-common/Dockerfile
+          - name: identity
+            dockerfile: services/identity/Dockerfile
+          - name: tenant
+            dockerfile: services/tenant/Dockerfile
+          - name: property
+            dockerfile: services/property/Dockerfile
+          - name: lease
+            dockerfile: services/lease/Dockerfile
+          - name: reservation
+            dockerfile: services/reservation/Dockerfile
+          - name: payment
+            dockerfile: services/payment/Dockerfile
+          - name: document
+            dockerfile: services/document/Dockerfile
+          - name: utility
+            dockerfile: services/utility/Dockerfile
+          - name: maintenance
+            dockerfile: services/maintenance/Dockerfile
+          - name: reporting
+            dockerfile: services/reporting/Dockerfile
+          - name: erp_adapter
+            dockerfile: services/erp_adapter/Dockerfile
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Build only, no push: Azure Container Registry doesn't exist until Day 3
+      # (Terraform). Day 3+ adds login and push here once it does.
+      - name: Build ${{ matrix.target.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.target.dockerfile }}
+          push: false
+          tags: crepro/${{ matrix.target.name }}:ci
+          cache-from: type=gha,scope=${{ matrix.target.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
