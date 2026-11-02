@@ -5,12 +5,17 @@ from crepro_common import (
     EntityNotFoundError,
     EventEnvelope,
     InMemoryRepository,
+    InvalidTokenError,
+    Settings,
     TenantContext,
     TenantNotSetError,
     TenantScopedEntity,
+    TokenType,
     build_crud_router,
     create_app,
     current_tenant,
+    decode_token,
+    issue_token_pair,
 )
 from crepro_common.tenancy import bind_tenant, require_tenant, unbind_tenant
 from fastapi import Depends
@@ -76,6 +81,64 @@ def test_require_tenant_binds_and_unbinds_around_request() -> None:
         current_tenant()
 
 
+def test_require_tenant_accepts_a_bearer_access_token() -> None:
+    app = create_app("sample")
+
+    @app.get("/whoami")
+    def whoami(tenant: TenantContext = Depends(require_tenant)) -> dict[str, str]:
+        return {"tenant_id": str(tenant.tenant_id)}
+
+    tenant_id = uuid4()
+    # No explicit settings: both issuing and require_tenant's decoding fall back to the
+    # same cached get_settings(), so this mirrors a real request carrying an identity-issued token.
+    access, _ = issue_token_pair(tenant_id=tenant_id, user_id=uuid4(), role="property_manager")
+
+    response = TestClient(app).get("/whoami", headers={"Authorization": f"Bearer {access}"})
+
+    assert response.status_code == 200
+    assert response.json()["tenant_id"] == str(tenant_id)
+
+
+def test_require_tenant_rejects_a_token_with_the_wrong_signature() -> None:
+    app = create_app("sample")
+
+    @app.get("/whoami")
+    def whoami(tenant: TenantContext = Depends(require_tenant)) -> dict[str, str]:
+        return {"tenant_id": str(tenant.tenant_id)}
+
+    access, _ = issue_token_pair(
+        tenant_id=uuid4(), user_id=uuid4(), role="property_manager", settings=_settings()
+    )
+
+    response = TestClient(app).get("/whoami", headers={"Authorization": f"Bearer {access}"})
+
+    assert response.status_code == 401
+
+
+def test_require_tenant_rejects_malformed_authorization_header() -> None:
+    app = create_app("sample")
+
+    @app.get("/whoami")
+    def whoami(tenant: TenantContext = Depends(require_tenant)) -> dict[str, str]:
+        return {"tenant_id": str(tenant.tenant_id)}
+
+    response = TestClient(app).get("/whoami", headers={"Authorization": "not-a-bearer-token"})
+
+    assert response.status_code == 401
+
+
+def test_require_tenant_requires_some_tenant_source() -> None:
+    app = create_app("sample")
+
+    @app.get("/whoami")
+    def whoami(tenant: TenantContext = Depends(require_tenant)) -> dict[str, str]:
+        return {"tenant_id": str(tenant.tenant_id)}
+
+    response = TestClient(app).get("/whoami")
+
+    assert response.status_code == 400
+
+
 class _Widget(TenantScopedEntity):
     name: str
 
@@ -118,3 +181,47 @@ def test_build_crud_router_supports_full_lifecycle() -> None:
 
     assert client.delete(f"/widgets/{widget_id}", headers=headers).status_code == 204
     assert client.get(f"/widgets/{widget_id}", headers=headers).status_code == 404
+
+
+def _settings() -> Settings:
+    return Settings(jwt_secret="test-secret-at-least-32-bytes-long!!", jwt_issuer="crepro-test")
+
+
+def test_issue_and_decode_access_token_round_trip() -> None:
+    settings = _settings()
+    tenant_id, user_id = uuid4(), uuid4()
+    access, refresh = issue_token_pair(
+        tenant_id=tenant_id, user_id=user_id, role="property_manager", settings=settings
+    )
+
+    access_claims = decode_token(access, expected_type=TokenType.ACCESS, settings=settings)
+    refresh_claims = decode_token(refresh, expected_type=TokenType.REFRESH, settings=settings)
+
+    assert access_claims.tenant_id == tenant_id
+    assert access_claims.user_id == user_id
+    assert access_claims.role == "property_manager"
+    assert access_claims.token_type == TokenType.ACCESS
+    assert refresh_claims.token_type == TokenType.REFRESH
+
+
+def test_decode_token_rejects_wrong_token_type() -> None:
+    settings = _settings()
+    access, _ = issue_token_pair(tenant_id=uuid4(), user_id=uuid4(), role="accountant", settings=settings)
+
+    with pytest.raises(InvalidTokenError):
+        decode_token(access, expected_type=TokenType.REFRESH, settings=settings)
+
+
+def test_decode_token_rejects_bad_signature() -> None:
+    access, _ = issue_token_pair(tenant_id=uuid4(), user_id=uuid4(), role="accountant", settings=_settings())
+
+    with pytest.raises(InvalidTokenError):
+        decode_token(
+            access,
+            settings=Settings(jwt_secret="a-completely-different-secret-value!!", jwt_issuer="crepro-test"),
+        )
+
+
+def test_decode_token_rejects_garbage() -> None:
+    with pytest.raises(InvalidTokenError):
+        decode_token("not-a-jwt", settings=_settings())

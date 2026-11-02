@@ -25,7 +25,7 @@ Unified Property Operations Platform. Architecture, design and delivery plan for
 
 | Service | Package | Responsibility |
 |---|---|---|
-| identity | `crepro-identity` | Users and roles |
+| identity | `crepro-identity` | Users and roles; OAuth2/OIDC + local-account auth, JWT issuing (Day 5) |
 | tenant | `crepro-tenant` | Tenant (customer organization) directory: onboarding, tier assignment, isolation metadata |
 | property | `crepro-property` | Portfolio, buildings, units, amenities |
 | lease | `crepro-lease` | Lease lifecycle, rent schedules, increments, renewals, and resident records |
@@ -41,8 +41,30 @@ Each service exposes `GET /health` plus a tenant-scoped REST API (`models/`, `sc
 `repository/`, `api/`) built on `crepro_common`'s generic CRUD router and in-memory
 repository. Entities were scoped from an analysis of a property-management reference
 codebase (doctypes and roles), reshaped into CREPRO's own naming with no copied code,
-branding, or URLs. Persistence is in-memory; a real database, auth, and the ERP
-push/reconciliation workers are not implemented yet.
+branding, or URLs. Persistence is in-memory; a real database and the ERP push/reconciliation
+workers are not implemented yet.
+
+### Authentication (Day 5)
+
+The identity service issues CREPRO JWTs (`tenantId`/`userId`/`role` claims, HS256,
+`crepro_common.security`) from four login paths, all under `POST /api/v1/auth/`:
+
+| Path | Flow |
+|---|---|
+| `microsoft` | Microsoft Entra ID (`common` tenant) OIDC, verified against Entra's JWKS |
+| `google` | Google OAuth OIDC, verified against Google's JWKS |
+| `apple` | Apple Sign-In OIDC, verified against Apple's JWKS |
+| `local` (+ `register`) | Local-account fallback: PBKDF2-SHA256 password hashing |
+| `refresh` | Exchanges a refresh token for a new access/refresh pair |
+
+Every path resolves the login's tenant through the tenant service's
+`GET /api/v1/tenants/resolve` (custom domain > subdomain > an explicit `tenant_id` claim
+for clients with no resolvable `Host` header), then provisions or reuses a `User` scoped to
+that tenant. OAuth provider client IDs are read from `CREPRO_IDENTITY_*` env vars
+(`services/identity/src/crepro_identity/config.py`); set them before pointing a path at a
+real IdP. Every service's `create_app` also wires OpenTelemetry basics
+(`crepro_common.telemetry`): tracing is a no-op until `CREPRO_OTEL_EXPORTER_ENDPOINT` is
+set, so no collector is required locally.
 
 ## Getting started
 
@@ -91,6 +113,9 @@ Service Bus namespace with the `erp-events` topic. Every PR is gated on lint, a 
 threshold per package, all 12 images building, and three security scans (Semgrep, gitleaks,
 Trivy) — branch protection enforces all of it, including for admins, and merge is blocked on a
 failing test or a fixable critical vulnerability (verified directly: seeded both in throwaway
-PRs and confirmed GitHub refused to merge even with `--admin`). Next steps are the frontend
-(Next.js, ADR-003), wiring real persistence into the services, auth, and the ERP adapter's
-push/reconciliation workers, following the [15-day plan](docs/plan/15-day-plan-solo.md).
+PRs and confirmed GitHub refused to merge even with `--admin`). The identity service now issues
+CREPRO JWTs from four login paths (Microsoft Entra ID, Google, Apple, and a local-account
+fallback), each resolving its tenant through the tenant service's custom-domain/subdomain
+lookup (Day 5). Next steps are the frontend (Next.js, ADR-003), wiring real persistence into
+the services, and the ERP adapter's push/reconciliation workers, following the
+[15-day plan](docs/plan/15-day-plan-solo.md).

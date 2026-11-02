@@ -25,6 +25,23 @@ def create_tenant(payload: TenantCreate) -> Tenant:
     return tenants.create(Tenant(**payload.model_dump()))
 
 
+@router.get("/resolve", response_model=Tenant)
+def resolve_tenant(host: str) -> Tenant:
+    """Resolve a request's `Host` header to a tenant: custom domain, then subdomain
+    (15-day plan, Day 5). Registered ahead of `/{tenant_id}` so "resolve" is never parsed
+    as a tenant id.
+    """
+    hostname = host.split(":", 1)[0].lower()
+    for tenant in tenants.list():
+        if tenant.custom_domain and tenant.custom_domain.lower() == hostname:
+            return tenant
+    subdomain = hostname.split(".", 1)[0]
+    for tenant in tenants.list():
+        if tenant.subdomain.lower() == subdomain:
+            return tenant
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "No tenant matches this host")
+
+
 @router.get("/{tenant_id}", response_model=Tenant)
 def get_tenant(tenant_id: UUID) -> Tenant:
     try:
