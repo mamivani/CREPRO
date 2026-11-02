@@ -9,8 +9,23 @@ defaults:
   run:
     shell: bash
 
+# Hosted-first, self-hosted-fallback (cost control), applied uniformly to
+# every job: try the free GitHub-hosted minutes first; if that run fails for
+# any reason -- including the account hitting its spending/payment limit,
+# which was observed to block *every* GitHub-hosted job outright, not just
+# parallel Docker builds -- a self-hosted fallback picks up the same work.
+# Each task's un-suffixed job (`lint`, `build-images`) is the one required
+# status check and the only thing anything else `needs:`; it passes as long
+# as either path succeeded, so branch protection and downstream jobs don't
+# care which one ran. It runs on self-hosted itself (not ubuntu-latest):
+# when hosted is blocked, a hosted aggregator job would itself never start,
+# so the one job everything depends on has to run somewhere guaranteed to
+# work. For a matrix job (`build-images`), GitHub Actions doesn't expose
+# per-entry results to a downstream job, so the aggregator is a single
+# check for the whole matrix, and the self-hosted fallback re-runs every
+# image, not just the ones that failed on the hosted side.
 jobs:
-  lint:
+  lint-hosted:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -25,15 +40,39 @@ jobs:
       - name: Lint and format check
         run: ruff check . && ruff format --check .
 
-  # Hosted-first, self-hosted-fallback (cost control): try the free
-  # GitHub-hosted minutes first; if that run hits the account spending limit
-  # (or fails for any other reason) the self-hosted fallback picks up the
-  # same matrix. `build-images` is the required status check -- it passes as
-  # long as either path succeeded, so branch protection doesn't care which
-  # one it was. A caveat of this pattern: since GitHub Actions can't retry
-  # only the matrix entries that failed, a single failing image on the
-  # hosted runner re-runs the *entire* matrix on self-hosted, not just that
-  # one image.
+  lint-self-hosted:
+    needs: lint-hosted
+    if: always() && needs.lint-hosted.result == 'failure'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff
+          python -m pip install -e packages/crepro-common[dev]
+          for svc in services/*/; do python -m pip install -e "$svc[dev]"; done
+
+      - name: Lint and format check
+        run: ruff check . && ruff format --check .
+
+  lint:
+    needs: [lint-hosted, lint-self-hosted]
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - name: Require the hosted lint or its self-hosted fallback to have succeeded
+        run: |
+          if [ "${{ needs.lint-hosted.result }}" = "success" ]; then
+            exit 0
+          fi
+          if [ "${{ needs.lint-self-hosted.result }}" = "success" ]; then
+            exit 0
+          fi
+          echo "::error::Neither the GitHub-hosted lint run nor its self-hosted fallback succeeded."
+          exit 1
+
   build-images-hosted:
     needs: lint
     runs-on: ubuntu-latest
@@ -132,7 +171,7 @@ jobs:
   build-images:
     needs: [build-images-hosted, build-images-self-hosted]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Require the hosted build or its self-hosted fallback to have succeeded
         run: |
@@ -144,4 +183,3 @@ jobs:
           fi
           echo "::error::Neither the GitHub-hosted build-images run nor its self-hosted fallback succeeded."
           exit 1
-
