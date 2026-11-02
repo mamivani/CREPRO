@@ -34,26 +34,35 @@ jobs:
   # available for this repository"). gitleaks is the free substitute, scanning
   # the full clone (not just the diff) so a secret committed earlier and only
   # touched incidentally in a PR is still caught.
+  #
+  # Installed directly rather than via gitleaks/gitleaks-action: that action's
+  # installer (src/gitleaks.js, function downloadURL) unconditionally requests
+  # a `.tar.gz` asset, but gitleaks has only ever published `.zip` for Windows
+  # (checked v8.18.1 through the current v8.24.3) -- the action cannot install
+  # on a Windows runner at all, on any pinned version. Not a self-hosted-runner
+  # config issue; it only surfaced once the fleet moved off ubuntu-latest.
   secret-scan:
     runs-on: self-hosted
-    permissions:
-      contents: read
-      pull-requests: read
+    env:
+      GITLEAKS_VERSION: "8.24.3"
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      # v3, not v2: v2 is a Node 20 action, and GitHub removed Node 20 from
-      # hosted runners entirely on 2026-09-16, so v2 no longer runs at all.
+      - name: Install gitleaks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $zipUrl = "https://github.com/gitleaks/gitleaks/releases/download/v$env:GITLEAKS_VERSION/gitleaks_$($env:GITLEAKS_VERSION)_windows_x64.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP "gitleaks.zip"
+          $installDir = Join-Path $env:RUNNER_TEMP "gitleaks"
+          Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $installDir -Force
+          Add-Content -Path $env:GITHUB_PATH -Value $installDir
+
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
-          # No pull-requests: write granted above, so PR comments are off; the
-          # required status check failing is the actual gate, not the comment.
-          GITLEAKS_ENABLE_COMMENTS: "false"
+        run: gitleaks detect --source . --redact -v --report-format sarif --report-path gitleaks-results.sarif
 
   # Container image scanning: build each image (same 12-target matrix as
   # build.yml) and scan it before it goes anywhere. Fails on CRITICAL findings
