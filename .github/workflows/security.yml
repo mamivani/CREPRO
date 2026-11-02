@@ -16,18 +16,30 @@ jobs:
   # for this repository" -- the same class of plan limitation as Day 3's
   # required-reviewer environments). Semgrep is the free, no-GHAS-required
   # substitute with equivalent intent: static analysis that blocks merge.
+  #
+  # Run via the semgrep CLI directly rather than semgrep/semgrep-action: that
+  # action executes as a Docker *container action*
+  # (docker://returntocorp/semgrep-agent:v1), and the GitHub Actions runner
+  # flatly refuses to run container actions on a Windows runner
+  # ("System.NotSupportedException: Container action is only supported on
+  # Linux") -- not something any config on our side can change. semgrep itself
+  # ships a native Windows wheel, so installing and invoking the CLI directly
+  # sidesteps the action's Linux-only container requirement entirely.
   sast:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
 
+      - name: Install Semgrep
+        run: python -m pip install semgrep
+
       - name: Semgrep
-        uses: semgrep/semgrep-action@v1
-        with:
-          config: >-
-            p/security-audit
-            p/python
-            p/secrets
+        run: |
+          semgrep scan \
+            --config p/security-audit \
+            --config p/python \
+            --config p/secrets \
+            --error
 
   # Secret scanning. Same plan limitation as above (confirmed: PATCH
   # security_and_analysis.secret_scanning returns 422 "Secret scanning is not
