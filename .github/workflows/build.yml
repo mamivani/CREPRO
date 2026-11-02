@@ -11,9 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
+      # Skip setup-python on self-hosted: Python 3.13 is pre-installed
+      # setup-python@v7 only works on GitHub-hosted runners
+      # Self-hosted runner already has Python 3.13.2 configured
 
       - name: Install packages
         run: |
