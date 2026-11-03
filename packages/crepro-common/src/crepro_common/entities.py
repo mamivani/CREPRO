@@ -15,3 +15,4 @@ class TenantScopedEntity(BaseModel):
     def touch(self) -> None:
         """Refresh updated_at. Call before persisting a mutation."""
         self.updated_at = datetime.now(UTC)
+
