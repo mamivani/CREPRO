@@ -24,6 +24,7 @@
 - Live Stripe and ACH (Payment Entry is posted from a test payment event)
 - Staging/Production environments and multi-region DR (Dev only this phase)
 - Per-tenant dedicated infrastructure provisioning (Vol 4 §14–§15)
+- Frontend build-out (Next.js, TypeScript, Tailwind, ShadCN per Vol 5 §11 and the spec's internal ADR-003) — there is no UI yet, only the API surface. Playwright is pinned now as the designated UI/E2E testing tool (see Testing strategy below) so that Days 16+ start the frontend with test automation in place from day one, instead of bolting it on after the UI exists.
 
 ## Daily plan
 
@@ -43,11 +44,11 @@
 | 12 | Adapter mappings: Customer, Sales Invoice, Payment Entry (linked to invoice). Retry policy (5 attempts, back-off) and dead-letter queue. Tests: idempotent replay, poison message to DLQ. | Paid invoice produces matching Payment Entry; a poison message lands in DLQ |
 | 13 | Reconciliation job: 15-minute incremental scan and nightly full pass, as a Container Apps Job defined in Terraform. Re-posts missing records and replays DLQ after fixes. | Deleting an external-ERP record is repaired by the next run |
 | 14 | `deploy.yml` deploys every service (Identity, Property, ERP Adapter, and the other eight scaffolded services), the reconciliation job, and the external ERP to Dev Container Apps through the full pipeline. Smoke tests. Alert rules for DLQ and failed jobs. Failure drill: stop the external ERP for 30 minutes, restart, confirm events post. | Full pipeline green end to end; smoke tests pass; drill passes with no manual step |
-| 15 | Demo. Update each service's `README.md`/`architecture.md`/`deployment.md`/`runbook.md` (Vol 5 §20). Review open items in design doc. Publish the coverage and security-scan summary. Write Days 16–25 backlog (Lease business logic first). | Demo done; backlog written; design doc §10 closed or tracked; docs present for every service |
+| 15 | Demo. Update each service's `README.md`/`architecture.md`/`deployment.md`/`runbook.md` (Vol 5 §20). Review open items in design doc. Publish the coverage and security-scan summary. Write Days 16–25 backlog: Lease business logic first, then the Next.js frontend scaffold with the Playwright harness (`e2e.yml`, below) wired in from its first commit rather than retrofitted. | Demo done; backlog written; design doc §10 closed or tracked; docs present for every service |
 
 ## Testing strategy and coverage targets
 
-Test pyramid per Vol 5 §18: unit tests (domain logic, no I/O), integration tests (API + database), contract tests (OpenAPI schema and consumer-contract checks between services), system tests (the Day 14 smoke tests and Day 14 failure drill). Every service publishes its OpenAPI contract (Vol 5 §19).
+Test pyramid per Vol 5 §18: unit tests (domain logic, no I/O), integration tests (API + database), contract tests (OpenAPI schema and consumer-contract checks between services), system tests (the Day 14 smoke tests and Day 14 failure drill, plus Playwright UI/E2E tests once the frontend exists — see below). Every service publishes its OpenAPI contract (Vol 5 §19).
 
 | Area | Coverage target |
 |---|---|
@@ -55,8 +56,19 @@ Test pyramid per Vol 5 §18: unit tests (domain logic, no I/O), integration test
 | APIs | 80% |
 | Utilities | 90% |
 | Critical workflows (auth, tenant isolation, ERP posting, reconciliation) | 95% |
+| UI critical journeys (Playwright, from Days 16+) | 100% of MVP journeys (login via each provider, Create Property, lease/invoice payment posting) have at least one passing E2E test |
 
 `test.yml` fails the build below target for any changed package; a report of current coverage per service is published on Day 15.
+
+### UI/E2E testing with Playwright
+
+No frontend exists in Days 1–15 (API-only); this pins the tool choice and CI shape now so Days 16+ build it in from the first commit instead of adding test automation after the fact:
+
+- **Tool:** Playwright (TypeScript), matching the Next.js frontend's language and the spec's internal ADR-003. Runs headless across Chromium, Firefox, and WebKit.
+- **What it tests:** real user journeys through the UI, not re-tests of API logic already covered by unit/integration/contract tests — login via each OAuth provider plus local account, Create Property, and a lease/invoice payment flowing through to the external ERP (mirroring the Day 12–13 adapter and reconciliation guarantees as seen from the UI).
+- **Where it runs:** on every PR, against the same local `docker-compose.yml` stack used for Day 2+ local dev (Postgres, Redis, Dapr sidecars, external ERP) plus the frontend built and served locally (`next build && next start`) in the CI job — no dependency on the Dev Azure deployment, so results are fast and don't block on Terraform/Container Apps availability.
+- **CI wiring:** a new `e2e.yml` workflow (same shape as the other five: required, merge-blocking), added as part of the Days 16+ frontend scaffold, not Day 1–15. It brings up `docker compose up -d`, builds and starts the frontend, runs `npx playwright test`, and uploads the HTML report plus failure traces/videos as build artifacts for debugging. `npx playwright install --with-deps` runs once per job on the self-hosted runner (same runner already used for `build.yml`/`test.yml`, so no extra GitHub Actions billing — see [SELF_HOSTED_RUNNER_SETUP.md](../../SELF_HOSTED_RUNNER_SETUP.md)).
+- **Required check:** once live, "E2E Tests Pass" is added to the PR required-checks list alongside Build Success, Tests Pass, CodeQL Pass, Dependency Scan Pass, Lint Pass, and Architecture Review (Vol 5 §7).
 
 ## Code quality and security scanning
 
@@ -93,6 +105,7 @@ PR required checks mirror Vol 5 §7: Build Success, Tests Pass, CodeQL Pass, Dep
 | Container scanning finds vulnerabilities in base images late in the cycle | Pin and scan base images starting Day 2, not Day 14, so findings surface while there is still runway to patch. |
 | Tenant isolation mistakes | Isolation tests are written on Day 9, before the adapter reads any data. |
 | No second reviewer | Use CodeQL, Dependabot, secret scanning, container scanning, and the isolation test suite as automated gates. Self-review every PR against the checklist in Vol 5 §7. |
+| No UI exists through Day 15, so real user journeys are only validated at the API layer, not as an end user would experience them | Playwright is pinned as the UI/E2E tool now (Testing strategy, above) and scaffolded alongside the Next.js frontend as the very first Days 16+ item, so test automation exists before the UI accumulates untested surface area. |
 
 ## Budget impact
 
@@ -100,3 +113,4 @@ PR required checks mirror Vol 5 §7: Build Success, Tests Pass, CodeQL Pass, Dep
 - Azure Container Registry (Basic tier) for 11+ service images: low single-digit $/month.
 - Dev Container Apps (now running all 11 services plus the adapter, reconciliation job, and external ERP), PostgreSQL, Key Vault and Storage: within the spec's Dev budget, but higher than Revision 1's 3-service footprint — stop non-prod resources outside working hours to keep cost down.
 - Three OAuth provider registrations (Entra, Google, Apple) have no direct Azure cost; Apple Sign-In requires an active Apple Developer Program membership ($99/year) if not already held.
+- Playwright itself is open-source/free; it runs on the existing self-hosted runner (no added GitHub Actions minutes billing), only adding browser-binary disk usage (`npx playwright install --with-deps`) and runner build time once the Days 16+ `e2e.yml` lands.
