@@ -13,14 +13,20 @@ import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 import httpx
 from crepro_common import EventEnvelope
+from crepro_erp_adapter.mappings import apply_entity_mapping
 from crepro_erp_adapter.models import AdapterEventType, AdapterLedgerEntry, AdapterLedgerStatus
 from crepro_erp_adapter.repository import ledger_entries
 
 logger = logging.getLogger(__name__)
+
+# Exponential backoff times (seconds) for retry attempts
+RETRY_BACKOFF_SECONDS = [1, 2, 4, 8, 16]
+MAX_RETRY_ATTEMPTS = 5
 
 
 @dataclass
@@ -137,6 +143,160 @@ async def post_to_erp(
     return external_name if success else None
 
 
+async def post_to_erp_with_retry(
+    tenant_id: str,
+    entity_id: UUID,
+    erp_client: httpx.AsyncClient,
+    external_doctype: str,
+    payload: dict,
+    event_id: UUID,
+    adapter_event_type: AdapterEventType,
+) -> tuple[bool, str | None]:
+    """
+    Post to ERP with exponential backoff retry.
+
+    Attempts to post up to MAX_RETRY_ATTEMPTS times with exponential backoff.
+    On each failure, updates the ledger with attempt count and error.
+    After max attempts exhausted, routes to DLQ.
+
+    Returns (success, external_name) tuple.
+    On success: (True, external_name)
+    On max retries: (False, None) after routing to DLQ
+    """
+    for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
+        try:
+            # Apply entity-specific field mapping
+            mapped_payload = apply_entity_mapping(external_doctype, payload)
+
+            # Try to post
+            success, external_name = await post_to_erp_internal(
+                entity_id, external_doctype, mapped_payload
+            )
+
+            if success:
+                logger.info(
+                    f"Posted successfully on attempt {attempt}: "
+                    f"{external_doctype} {entity_id} -> {external_name}"
+                )
+                return True, external_name
+
+            # Post failed, will retry
+            logger.warning(
+                f"Post failed on attempt {attempt}/{MAX_RETRY_ATTEMPTS}: "
+                f"{external_doctype} {entity_id}"
+            )
+
+            # Update ledger with attempt count
+            _update_ledger_attempt(
+                tenant_id, entity_id, adapter_event_type, external_doctype,
+                attempt, f"Attempt {attempt}/{MAX_RETRY_ATTEMPTS} failed"
+            )
+
+            if attempt < MAX_RETRY_ATTEMPTS:
+                # Wait before retry (exponential backoff)
+                backoff_seconds = RETRY_BACKOFF_SECONDS[attempt - 1]
+                logger.info(f"Retrying in {backoff_seconds}s...")
+                await asyncio.sleep(backoff_seconds)
+
+        except Exception as exc:
+            logger.error(f"Exception on attempt {attempt}: {exc}")
+            _update_ledger_attempt(
+                tenant_id, entity_id, adapter_event_type, external_doctype,
+                attempt, f"Attempt {attempt} failed: {str(exc)}"
+            )
+
+            if attempt < MAX_RETRY_ATTEMPTS:
+                backoff_seconds = RETRY_BACKOFF_SECONDS[attempt - 1]
+                await asyncio.sleep(backoff_seconds)
+
+    # All retries exhausted - mark as FAILED and route to DLQ
+    logger.error(
+        f"Max retries ({MAX_RETRY_ATTEMPTS}) exhausted for "
+        f"{external_doctype} {entity_id}"
+    )
+
+    # Final update to ledger
+    payload_hash = hashlib.sha256(str(payload).encode()).hexdigest()
+    entry = AdapterLedgerEntry(
+        tenant_id=tenant_id,
+        platform_entity_id=entity_id,
+        event_type=adapter_event_type,
+        external_doctype=external_doctype,
+        payload_hash=payload_hash,
+        status=AdapterLedgerStatus.FAILED,
+        attempts=MAX_RETRY_ATTEMPTS,
+        last_error="Max retries exhausted",
+    )
+    ledger_entries.create(entry)
+
+    # Route to DLQ
+    await route_to_dlq(
+        tenant_id, event_id, entity_id, external_doctype,
+        f"Max retries ({MAX_RETRY_ATTEMPTS}) exhausted"
+    )
+
+    return False, None
+
+
+def _update_ledger_attempt(
+    tenant_id: str,
+    entity_id: UUID,
+    adapter_event_type: AdapterEventType,
+    external_doctype: str,
+    attempt: int,
+    error_message: str,
+) -> None:
+    """Update ledger entry with retry attempt information."""
+    payload_hash = ""  # Not used for retry updates, already in original entry
+    entry = AdapterLedgerEntry(
+        tenant_id=tenant_id,
+        platform_entity_id=entity_id,
+        event_type=adapter_event_type,
+        external_doctype=external_doctype,
+        payload_hash=payload_hash,
+        status=AdapterLedgerStatus.FAILED,
+        attempts=attempt,
+        last_error=error_message,
+    )
+    ledger_entries.create(entry)
+
+
+async def route_to_dlq(
+    tenant_id: str,
+    event_id: UUID,
+    entity_id: UUID,
+    external_doctype: str,
+    reason: str,
+) -> None:
+    """
+    Route a failed event to the dead-letter queue for manual remediation.
+
+    The DLQ is a separate Dapr pub/sub topic that can be monitored and
+    manually handled when automatic retry is exhausted.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30) as dlq_client:
+            # Publish to dead_letter_events topic via Dapr
+            dlq_payload = {
+                "original_event_id": str(event_id),
+                "entity_id": str(entity_id),
+                "external_doctype": external_doctype,
+                "reason": reason,
+                "routed_at": datetime.utcnow().isoformat(),
+                "tenant_id": tenant_id,
+            }
+            await dlq_client.post(
+                "http://localhost:3500/v1.0/publish/pubsub/dead_letter_events",
+                json=dlq_payload,
+            )
+            logger.info(
+                f"Routed to DLQ: event_id={event_id}, entity_id={entity_id}, "
+                f"reason={reason}"
+            )
+    except Exception as exc:
+        logger.error(f"Failed to route to DLQ: {exc}")
+
+
 def _map_event_type_to_adapter_type(domain_event_type: str) -> AdapterEventType:
     """Map domain event type to adapter event type."""
     mapping = {
@@ -229,16 +389,18 @@ async def process_event(
             ledger_entries.create(entry)
             return True
 
-        # Post to external ERP
-        external_name = await post_to_erp(
+        # Post to external ERP with retry logic (Day 12)
+        success, external_name = await post_to_erp_with_retry(
             context.tenant_id,
             context.platform_entity_id,
             erp_client,
             external_doctype,
             context.payload,
+            context.event_id,
+            adapter_event_type,
         )
 
-        if external_name:
+        if success:
             # Record successful post in ledger
             payload_hash = hashlib.sha256(str(context.payload).encode()).hexdigest()
             entry = AdapterLedgerEntry(
@@ -253,19 +415,7 @@ async def process_event(
             ledger_entries.create(entry)
             return True
         else:
-            # Record failed post in ledger
-            payload_hash = hashlib.sha256(str(context.payload).encode()).hexdigest()
-            entry = AdapterLedgerEntry(
-                tenant_id=context.tenant_id,
-                platform_entity_id=context.platform_entity_id,
-                event_type=adapter_event_type,
-                external_doctype=external_doctype,
-                payload_hash=payload_hash,
-                status=AdapterLedgerStatus.FAILED,
-                attempts=1,
-                last_error="Post failed (will retry)",
-            )
-            ledger_entries.create(entry)
+            # Failed after all retries (already routed to DLQ)
             return False
 
     except Exception as exc:

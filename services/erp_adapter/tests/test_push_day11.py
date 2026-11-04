@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from crepro_common import EventEnvelope
 from crepro_erp_adapter.main import app
+from crepro_erp_adapter.models import AdapterEventType
 from crepro_erp_adapter.push import process_event
 from fastapi.testclient import TestClient
 
@@ -27,15 +28,16 @@ class TestProcessEvent:
             payload={"name": "New Customer", "platform_id": str(entity_id)},
         )
 
-        # Mock the internal functions
+        # Mock the idempotency check (not posted yet)
         async def mock_idempotency(tenant_id, entity_id, erp_client, external_doctype):
             return None  # Not posted yet
 
-        async def mock_post(tenant_id, entity_id, erp_client, external_doctype, payload):
-            return "CUST-001"  # Successfully posted
+        # Mock the retry function to succeed
+        async def mock_retry(*args, **kwargs):
+            return True, "CUST-001"  # Successfully posted
 
         monkeypatch.setattr("crepro_erp_adapter.push.check_idempotency", mock_idempotency)
-        monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp", mock_post)
+        monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp_with_retry", mock_retry)
 
         import httpx
         async with httpx.AsyncClient() as client:
@@ -159,7 +161,7 @@ class TestDuplicateEventIdempotency:
             payload={"invoice_number": "INV-001", "amount": 1000, "platform_id": str(entity_id)},
         )
 
-        post_count = 0
+        retry_count = 0
 
         async def mock_idempotency_first(tenant_id, entity_id, erp_client, external_doctype):
             return None  # First call: not yet posted
@@ -167,23 +169,23 @@ class TestDuplicateEventIdempotency:
         async def mock_idempotency_second(tenant_id, entity_id, erp_client, external_doctype):
             return "SINV-001"  # Second call: now it exists
 
-        async def mock_post(tenant_id, entity_id, erp_client, external_doctype, payload):
-            nonlocal post_count
-            post_count += 1
-            return "SINV-001"
+        async def mock_retry(*args, **kwargs):
+            nonlocal retry_count
+            retry_count += 1
+            return True, "SINV-001"
 
         import httpx
         async with httpx.AsyncClient() as client:
-            # First call: not posted yet, so post
+            # First call: not posted yet, so post via retry
             monkeypatch.setattr("crepro_erp_adapter.push.check_idempotency", mock_idempotency_first)
-            monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp", mock_post)
+            monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp_with_retry", mock_retry)
             result1 = await process_event(event, client)
             assert result1 is True
 
-            # Second call: now it exists via idempotency check
+            # Second call: now it exists via idempotency check, no retry needed
             monkeypatch.setattr("crepro_erp_adapter.push.check_idempotency", mock_idempotency_second)
             result2 = await process_event(event, client)
             assert result2 is True
 
-        # Verify only one POST was made to ERP
-        assert post_count == 1
+        # Verify only one retry was made to ERP
+        assert retry_count == 1
