@@ -164,8 +164,8 @@ python -m pytest tests/smoke -v
 ```
 
 Known gaps for this phase:
-- Container Apps Jobs do not run a Dapr sidecar, so the reconciliation DLQ replay (`DaprDLQRepo`) cannot reach `dlq-store` from the job. Only the scan modes are fully wired in Azure.
-- Local compose uses `dapr/components/subscriptions.yaml` and the adapter's `GET /dapr/subscribe` (Azure). Both register the same route, so an event may be delivered twice. The adapter is idempotent on `platform_id`.
+- Container Apps Jobs do not run a Dapr sidecar, so the reconciliation DLQ replay (`DaprDLQRepo`) cannot reach `dlq-store` from the job. Production jobs run the incremental and full scans only; DLQ replay is skipped with a logged warning. Replay is restored only if the jobs gain a sidecar or the DLQ moves to a queryable store.
+- Event subscription uses one mechanism everywhere: the adapter's `GET /dapr/subscribe`. The declarative `dapr/components/subscriptions.yaml` was removed, so local compose and Azure register the same route once.
 
 
 ### 3.3 Container App Definitions
@@ -175,6 +175,8 @@ Each app has: a user-assigned identity, secrets referenced from Key Vault (`data
 `appinsights-connection-string`), a Dapr sidecar (`app_id` = service name with dashes), `/health` liveness and
 readiness probes, and 0.25 vCPU / 0.5 GiB with 1–2 replicas. The `erp_adapter` app also gets `ERP_BASE_URL`,
 `ERP_USERNAME`, `ERP_PASSWORD` and `DAPR_STATE_STORE=dlq-store`.
+
+`azurerm_container_app.erp_stub` runs `services/erp_stub` with internal ingress only (no external URL). When `erp_base_url` is empty, the adapter and reconciliation jobs use its internal FQDN, so dev has an ERP target without a real ERPNext instance. Set `erp_base_url` to point at a real ERP instead.
 
 ---
 

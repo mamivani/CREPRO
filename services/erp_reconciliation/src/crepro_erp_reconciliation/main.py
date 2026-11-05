@@ -113,7 +113,6 @@ async def _initialize_clients():
 
         # Import real clients (lazy import to avoid dependency if not needed)
         from crepro_erp_adapter.adapter_service_client import AdapterServiceClient
-        from crepro_erp_adapter.dapr_dlq_repo import DaprDLQRepo
         from crepro_erp_adapter.erp_client import ERPClient
         from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
 
@@ -132,15 +131,10 @@ async def _initialize_clients():
         ledger_repo = PostgresLedgerRepo(database_url)
         await ledger_repo.initialize()
 
-        # Initialize real DLQ repository (requires Dapr client)
-        try:
-            from dapr.clients import DaprClient
-
-            dapr_client = DaprClient()
-            dlq_repo = DaprDLQRepo(dapr_client)
-        except Exception:
-            logger.warning("Dapr client not available, falling back to mock DLQ repo", exc_info=True)
-            dlq_repo = MockDLQRepo()
+        # DLQ replay needs a Dapr sidecar to reach the dlq-store state component. Container Apps
+        # Jobs do not run one, so production jobs run scans only and DLQ replay is skipped.
+        dlq_repo = None
+        logger.warning("DLQ replay is disabled in production jobs (no Dapr sidecar available)")
 
         # Initialize adapter service client
         adapter_client = AdapterServiceClient(adapter_service_url)
@@ -185,14 +179,15 @@ async def run_reconciliation_job():
             )
             logger.info(f"Incremental scan report: {report}")
 
-            # Also run DLQ replay
-            logger.info("Running DLQ replay...")
-            dlq_report = await replay_dlq_events(
-                tenant_id=tenant_id,
-                dlq_repo=dlq_repo,
-                adapter_client=adapter_client,
-            )
-            logger.info(f"DLQ replay report: {dlq_report}")
+            # Also run DLQ replay when a DLQ repo is available (not in Container Apps Jobs)
+            if dlq_repo is not None:
+                logger.info("Running DLQ replay...")
+                dlq_report = await replay_dlq_events(
+                    tenant_id=tenant_id,
+                    dlq_repo=dlq_repo,
+                    adapter_client=adapter_client,
+                )
+                logger.info(f"DLQ replay report: {dlq_report}")
 
         elif mode == "FULL":
             # Run full scan (nightly)

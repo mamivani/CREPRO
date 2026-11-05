@@ -35,7 +35,7 @@ variable "services_external_ingress" {
 }
 
 variable "erp_base_url" {
-  description = "Base URL of the ERPNext instance (ERP_BASE_URL). Required when deploy_services is true."
+  description = "Base URL of the ERPNext instance (ERP_BASE_URL). Leave empty to use the in-environment erp_stub (internal FQDN)."
   type        = string
   default     = ""
 }

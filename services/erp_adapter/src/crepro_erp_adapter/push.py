@@ -474,14 +474,11 @@ async def process_event(
 
 async def start_subscriber(dapr_http_url: str = "http://localhost:3500") -> None:
     """
-    Superseded by the declarative Subscription resource in
-    dapr/components/subscriptions.yaml. Dapr's sidecar has no "register a
-    subscription" HTTP call to make from the app side (the API this function
-    used to call does not exist) -- declarative resources or a GET
-    /dapr/subscribe endpoint are the two real mechanisms. Kept as a no-op for
+    Superseded by the GET /dapr/subscribe endpoint in api/__init__.py, which the
+    Dapr sidecar reads at startup both locally and in Azure. Kept as a no-op for
     backward compatibility with anything still importing it.
     """
-    logger.debug("start_subscriber is a no-op; see dapr/components/subscriptions.yaml")
+    logger.debug("start_subscriber is a no-op; see GET /dapr/subscribe")
 
 
 def create_subscriber_handler():

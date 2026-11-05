@@ -65,8 +65,8 @@ async def test_initialize_clients_builds_real_clients_when_fully_configured(monk
     assert erp_client.base_url == "https://erp.example.com"
     assert isinstance(ledger_repo, PostgresLedgerRepo)
     assert isinstance(adapter_client, AdapterServiceClient)
-    # No Dapr sidecar reachable in the test environment: falls back to mock, not a crash.
-    assert isinstance(dlq_repo, MockDLQRepo)
+    # Production jobs have no Dapr sidecar, so DLQ replay is disabled rather than mocked.
+    assert dlq_repo is None
 
 
 @pytest.mark.asyncio
@@ -153,26 +153,35 @@ async def test_run_reconciliation_job_reraises_scan_failures_after_cleanup(monke
 
 
 @pytest.mark.asyncio
-async def test_initialize_clients_uses_real_dlq_repo_when_dapr_client_constructs(monkeypatch) -> None:
-    """The DaprDLQRepo branch (as opposed to the MockDLQRepo fallback, covered
-    above) only runs when a Dapr sidecar is actually reachable; fake that here."""
-    import dapr.clients as dapr_clients_module
-    from crepro_erp_adapter.dapr_dlq_repo import DaprDLQRepo
+async def test_run_reconciliation_job_skips_dlq_replay_in_production(monkeypatch) -> None:
+    """Container Apps Jobs have no Dapr sidecar, so the production path must not attempt replay."""
     from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
 
     monkeypatch.setenv("ERP_BASE_URL", "https://erp.example.com")
     monkeypatch.setenv("DATABASE_URL", "******host/db")
     monkeypatch.setenv("ADAPTER_SERVICE_URL", "http://erp-adapter.internal")
+    monkeypatch.setenv("RECONCILIATION_MODE", "INCREMENTAL")
+    monkeypatch.setenv("TENANT_ID", str(uuid4()))
+
+    replay_calls = []
 
     async def fake_initialize(self):
         pass
 
+    async def fake_scan(*args, **kwargs):
+        return "scan-report"
+
+    async def fake_replay(*args, **kwargs):
+        replay_calls.append(True)
+        return "replay-report"
+
     monkeypatch.setattr(PostgresLedgerRepo, "initialize", fake_initialize)
-    monkeypatch.setattr(dapr_clients_module, "DaprClient", lambda: object())
+    monkeypatch.setattr("crepro_erp_reconciliation.main.run_incremental_scan", fake_scan)
+    monkeypatch.setattr("crepro_erp_reconciliation.main.replay_dlq_events", fake_replay)
 
-    _, _, dlq_repo, _ = await _initialize_clients()
+    await run_reconciliation_job()
 
-    assert isinstance(dlq_repo, DaprDLQRepo)
+    assert replay_calls == []
 
 
 @pytest.mark.asyncio

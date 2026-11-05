@@ -21,6 +21,10 @@ locals {
 
   # Apps that publish or subscribe to erp-events (Dapr scopes on the pub/sub component).
   dapr_scopes = ["property", "erp-adapter"]
+
+  # ERP the adapter and reconciliation jobs talk to. Defaults to the in-environment erp_stub
+  # (internal ingress only) so dev has a working ERP target without a real ERPNext instance.
+  erp_base_url = var.erp_base_url != "" ? var.erp_base_url : try("https://${azurerm_container_app.erp_stub["erp_stub"].ingress[0].fqdn}", "")
 }
 
 # --- Identity: one user-assigned identity pulls images from ACR and reads Key Vault ---
@@ -228,7 +232,7 @@ resource "azurerm_container_app" "service" {
         for_each = each.key == "erp_adapter" ? [1] : []
         content {
           name  = "ERP_BASE_URL"
-          value = var.erp_base_url
+          value = local.erp_base_url
         }
       }
 
@@ -272,8 +276,8 @@ resource "azurerm_container_app" "service" {
 
   lifecycle {
     precondition {
-      condition     = each.key != "erp_adapter" || (var.erp_base_url != "" && var.erp_password != "")
-      error_message = "erp_base_url and erp_password must be set when deploy_services is true (the ERP adapter would otherwise silently fall back to mocks)."
+      condition     = each.key != "erp_adapter" || (local.erp_base_url != "" && var.erp_password != "")
+      error_message = "The ERP adapter needs a base URL (erp_base_url, or the erp_stub default) and erp_password when deploy_services is true; otherwise it would silently fall back to mocks."
     }
     precondition {
       condition     = var.dev_tenant_id != ""
@@ -287,6 +291,73 @@ resource "azurerm_container_app" "service" {
     azurerm_container_app_environment_dapr_component.pubsub,
     azurerm_container_app_environment_dapr_component.dlq_store,
     azurerm_key_vault_secret.erp_password,
+  ]
+}
+
+# --- In-environment ERP stub (services/erp_stub) ---
+# Internal ingress only: reachable by erp_adapter and the reconciliation jobs, not the internet.
+# Has no auth and a test-only reset route, so it must never be exposed externally.
+resource "azurerm_container_app" "erp_stub" {
+  for_each = var.deploy_services ? { erp_stub = 8100 } : {}
+
+  name                         = "ca-crepro-erp-stub"
+  resource_group_name          = azurerm_resource_group.dev.name
+  container_app_environment_id = azurerm_container_app_environment.dev.id
+  revision_mode                = "Single"
+  tags                         = local.tags
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.apps[0].id]
+  }
+
+  registry {
+    server   = azurerm_container_registry.dev.login_server
+    identity = azurerm_user_assigned_identity.apps[0].id
+  }
+
+  ingress {
+    external_enabled = false
+    target_port      = each.value
+    transport        = "http"
+
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
+
+  template {
+    min_replicas = 1
+    max_replicas = 1
+
+    container {
+      name   = "erp-stub"
+      image  = "${azurerm_container_registry.dev.login_server}/crepro-erp-stub:${var.image_tag}"
+      cpu    = 0.25
+      memory = "0.5Gi"
+
+      env {
+        name  = "CREPRO_ENVIRONMENT"
+        value = "dev"
+      }
+
+      liveness_probe {
+        transport = "HTTP"
+        path      = "/api/health"
+        port      = each.value
+      }
+
+      readiness_probe {
+        transport = "HTTP"
+        path      = "/api/health"
+        port      = each.value
+      }
+    }
+  }
+
+  depends_on = [
+    azurerm_role_assignment.apps_acr_pull,
   ]
 }
 
@@ -360,7 +431,7 @@ resource "azurerm_container_app_job" "reconciliation" {
 
       env {
         name  = "ERP_BASE_URL"
-        value = var.erp_base_url
+        value = local.erp_base_url
       }
 
       env {
