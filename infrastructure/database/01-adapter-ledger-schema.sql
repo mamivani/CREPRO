@@ -10,13 +10,14 @@ CREATE TABLE IF NOT EXISTS adapter_ledger_entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL,
     platform_entity_id UUID NOT NULL,
-    event_type VARCHAR(50) NOT NULL,  -- CREATE, UPDATE, DELETE
+    event_type VARCHAR(50),  -- domain event that caused the post; NULL for entries reconciliation creates/infers
     external_doctype VARCHAR(50) NOT NULL,  -- Customer, Invoice, etc.
-    payload_hash VARCHAR(64) NOT NULL,  -- SHA256 hash of original payload
+    payload_hash VARCHAR(64),  -- SHA256 hash of original payload; NULL when there is no original domain event
     status VARCHAR(20) NOT NULL,  -- POSTED, FAILED, DELETED, RECONCILED
     attempts INT DEFAULT 0,  -- Retry attempt count
     last_error TEXT,  -- Last error message
     erp_docid VARCHAR(255),  -- External ERP document ID/name
+    notes TEXT,  -- Free-text context, e.g. "Inferred from ERP during full scan"
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

@@ -1,39 +1,38 @@
-# Multi-stage build for ERP Reconciliation Service
+# syntax=docker/dockerfile:1
+# OCI-compliant, multi-stage image for the ERP reconciliation job.
+# Build context is the repo root: docker build -f services/erp_reconciliation/Dockerfile .
 
-# Stage 1: Build
-FROM python:3.13-slim as builder
+FROM python:3.13-slim AS builder
 
 WORKDIR /build
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy common package
-COPY packages/crepro-common /build/packages/crepro-common
+# crepro-common and crepro-erp-adapter aren't published to PyPI, so they're
+# installed from this monorepo alongside the job itself (ADR-014). Reconciliation's
+# real-client path lazily imports ERPClient/PostgresLedgerRepo/DaprDLQRepo/
+# AdapterServiceClient from crepro_erp_adapter (see main.py _initialize_clients).
+COPY packages/crepro-common ./packages/crepro-common
+COPY services/erp_adapter ./services/erp_adapter
+COPY services/erp_reconciliation ./services/erp_reconciliation
 
-# Copy reconciliation service
-COPY services/erp_reconciliation /build/services/erp_reconciliation
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir ./packages/crepro-common ./services/erp_adapter ./services/erp_reconciliation
 
-# Install dependencies
-RUN cd /build/packages/crepro-common && pip install -e .
-RUN cd /build/services/erp_reconciliation && pip install -e .
+FROM python:3.13-slim AS runtime
 
-# Stage 2: Runtime
-FROM python:3.13-slim
+RUN useradd --create-home --uid 1000 app
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-WORKDIR /app
+USER app
+WORKDIR /home/app
 
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-
-# Copy source code
-COPY services/erp_reconciliation/src /app/src
-
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import sys; sys.exit(0)" || exit 1
+  CMD python -c "import sys; sys.exit(0)" || exit 1
 
-# Set environment
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app/src
-
-# Run the reconciliation job
+# Run the reconciliation job (RECONCILIATION_MODE/TENANT_ID etc. via environment,
+# see main.py); Azure Container Apps Jobs invoke this once per scheduled trigger.
 ENTRYPOINT ["python", "-m", "crepro_erp_reconciliation.main"]

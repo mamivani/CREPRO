@@ -95,71 +95,6 @@ class MockAdapterClient:
         return False, None
 
 
-async def run_reconciliation_job():
-    """
-    Main job entry point.
-
-    Runs incremental scan, full scan, and DLQ replay based on environment.
-    """
-    mode = os.getenv("RECONCILIATION_MODE", "INCREMENTAL").upper()
-    tenant_id_str = os.getenv("TENANT_ID", "00000000-0000-0000-0000-000000000000")
-    
-    try:
-        tenant_id = UUID(tenant_id_str)
-    except ValueError:
-        logger.error(f"Invalid TENANT_ID: {tenant_id_str}")
-        return
-
-    # Initialize clients based on environment
-    erp_client, ledger_repo, dlq_repo, adapter_client = await _initialize_clients()
-
-    logger.info(f"Starting reconciliation job in {mode} mode for tenant {tenant_id}")
-
-    try:
-        if mode == "INCREMENTAL":
-            # Run incremental scan (every 15 minutes)
-            logger.info("Running incremental scan...")
-            report = await run_incremental_scan(
-                tenant_id=tenant_id,
-                erp_client=erp_client,
-                ledger_repo=ledger_repo,
-                dlq_repo=dlq_repo,
-            )
-            logger.info(f"Incremental scan report: {report}")
-
-            # Also run DLQ replay
-            logger.info("Running DLQ replay...")
-            dlq_report = await replay_dlq_events(
-                tenant_id=tenant_id,
-                dlq_repo=dlq_repo,
-                adapter_client=adapter_client,
-            )
-            logger.info(f"DLQ replay report: {dlq_report}")
-
-        elif mode == "FULL":
-            # Run full scan (nightly)
-            logger.info("Running full scan...")
-            report = await run_full_scan(
-                tenant_id=tenant_id,
-                erp_client=erp_client,
-                ledger_repo=ledger_repo,
-            )
-            logger.info(f"Full scan report: {report}")
-
-        else:
-            logger.error(f"Unknown reconciliation mode: {mode}")
-
-        logger.info("Reconciliation job completed successfully")
-
-    except Exception as e:
-        logger.error(f"Reconciliation job failed: {e}", exc_info=True)
-        raise
-    finally:
-        # Cleanup
-        if hasattr(ledger_repo, 'shutdown'):
-            await ledger_repo.shutdown()
-
-
 async def _initialize_clients():
     """
     Initialize ERP clients based on environment.
@@ -203,8 +138,8 @@ async def _initialize_clients():
             from dapr.clients import DaprClient
             dapr_client = DaprClient()
             dlq_repo = DaprDLQRepo(dapr_client)
-        except ImportError:
-            logger.warning("Dapr client not available, falling back to mock DLQ repo")
+        except Exception:
+            logger.warning("Dapr client not available, falling back to mock DLQ repo", exc_info=True)
             dlq_repo = MockDLQRepo()
 
         # Initialize adapter service client

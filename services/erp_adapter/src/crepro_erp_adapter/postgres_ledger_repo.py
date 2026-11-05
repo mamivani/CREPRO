@@ -1,10 +1,12 @@
 """PostgreSQL-based ledger repository for ERP adapter.
 
-Stores audit trail of all ERP sync operations with retry tracking.
-Enables post-mortem analysis and reconciliation.
+Stores audit trail of all ERP sync operations with retry tracking, and the
+per-tenant reconciliation_state row (last incremental/full scan times) Day 13's
+incremental_scan/full_scan modules read and update on every run.
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
@@ -12,6 +14,46 @@ from uuid import UUID
 import asyncpg
 
 logger = logging.getLogger(__name__)
+
+# Columns update() is allowed to set via **updates; always-sensitive columns
+# (id, tenant_id, platform_entity_id, created_at) are deliberately excluded.
+_UPDATABLE_COLUMNS = {
+    "status",
+    "attempts",
+    "last_error",
+    "erp_docid",
+    "event_type",
+    "external_doctype",
+    "notes",
+}
+
+
+@dataclass
+class LedgerEntryRecord:
+    """Attribute-accessible ledger row, matching the interface
+    incremental_scan.py/full_scan.py (and tests/conftest.py's MockLedgerRepo)
+    already expect -- e.g. `entry.status`, `entry.entity_id`, not dict keys.
+    """
+
+    id: UUID
+    tenant_id: UUID
+    entity_id: UUID
+    status: str
+    external_doctype: str
+    event_type: str | None = None
+    payload_hash: str | None = None
+    attempts: int = 0
+    last_error: str | None = None
+    erp_docid: str | None = None
+    notes: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> "LedgerEntryRecord":
+        data = dict(row)
+        data["entity_id"] = data.pop("platform_entity_id")
+        return cls(**data)
 
 
 class PostgresLedgerRepo:
@@ -49,7 +91,7 @@ class PostgresLedgerRepo:
         self,
         tenant_id: UUID,
         platform_id: UUID,
-    ) -> Optional[dict[str, Any]]:
+    ) -> Optional[LedgerEntryRecord]:
         """
         Get ledger entry by platform ID.
 
@@ -58,57 +100,55 @@ class PostgresLedgerRepo:
             platform_id: Platform entity ID
 
         Returns:
-            Ledger entry dict or None
+            LedgerEntryRecord or None
         """
         query = """
             SELECT id, tenant_id, platform_entity_id, event_type, external_doctype,
-                   payload_hash, status, attempts, last_error, erp_docid, created_at, updated_at
+                   payload_hash, status, attempts, last_error, erp_docid, notes,
+                   created_at, updated_at
             FROM adapter_ledger_entries
             WHERE tenant_id = $1 AND platform_entity_id = $2
             LIMIT 1
         """
         try:
             async with self.pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    query,
-                    tenant_id,
-                    platform_id,
-                )
-                if row:
-                    return dict(row)
-                return None
+                row = await conn.fetchrow(query, tenant_id, platform_id)
+                return LedgerEntryRecord.from_row(row) if row else None
         except Exception as exc:
             logger.error(f"Error querying ledger by platform_id: {exc}")
             raise
 
-    async def create(self, entry: dict) -> dict[str, Any]:
+    async def create(
+        self,
+        tenant_id: UUID,
+        entity_id: UUID,
+        status: str,
+        erp_docid: str | None = None,
+        external_doctype: str | None = None,
+        attempts: int = 0,
+        notes: str | None = None,
+        event_type: str | None = None,
+        payload_hash: str | None = None,
+        last_error: str | None = None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
+    ) -> LedgerEntryRecord:
         """
         Create a new ledger entry.
 
-        Args:
-            entry: Ledger entry dict with fields:
-                - tenant_id (UUID)
-                - platform_entity_id (UUID)
-                - event_type (str)
-                - external_doctype (str)
-                - payload_hash (str)
-                - status (str)
-                - attempts (int)
-                - last_error (str, optional)
-                - erp_docid (str, optional)
-
-        Returns:
-            Created entry dict
+        `event_type`/`payload_hash` are only set when posting an original domain
+        event (push.py's flow); entries incremental_scan/full_scan create or infer
+        from observed ERP state have neither.
         """
         query = """
             INSERT INTO adapter_ledger_entries (
                 tenant_id, platform_entity_id, event_type, external_doctype,
-                payload_hash, status, attempts, last_error, erp_docid,
+                payload_hash, status, attempts, last_error, erp_docid, notes,
                 created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING id, tenant_id, platform_entity_id, event_type, external_doctype,
-                      payload_hash, status, attempts, last_error, erp_docid,
+                      payload_hash, status, attempts, last_error, erp_docid, notes,
                       created_at, updated_at
         """
         try:
@@ -116,67 +156,56 @@ class PostgresLedgerRepo:
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(
                     query,
-                    entry["tenant_id"],
-                    entry["platform_entity_id"],
-                    entry["event_type"],
-                    entry["external_doctype"],
-                    entry["payload_hash"],
-                    entry["status"],
-                    entry.get("attempts", 0),
-                    entry.get("last_error"),
-                    entry.get("erp_docid"),
-                    now,
-                    now,
+                    tenant_id,
+                    entity_id,
+                    event_type,
+                    external_doctype,
+                    payload_hash,
+                    status,
+                    attempts,
+                    last_error,
+                    erp_docid,
+                    notes,
+                    created_at or now,
+                    updated_at or now,
                 )
-                logger.info(f"Created ledger entry: {entry['platform_entity_id']}")
-                return dict(row)
+                logger.info(f"Created ledger entry: {entity_id}")
+                return LedgerEntryRecord.from_row(row)
         except Exception as exc:
             logger.error(f"Error creating ledger entry: {exc}")
             raise
 
-    async def update(self, entry_id: UUID, updates: dict) -> dict[str, Any]:
+    async def update(self, entry_id: UUID, **updates: Any) -> Optional[LedgerEntryRecord]:
         """
         Update a ledger entry.
 
         Args:
             entry_id: Ledger entry ID
-            updates: Fields to update dict
+            **updates: Fields to update (see _UPDATABLE_COLUMNS); `updated_at` is
+                always set, to the caller's value if given, else now().
 
         Returns:
-            Updated entry dict
+            Updated LedgerEntryRecord, or None if entry_id doesn't exist.
         """
-        # Build dynamic UPDATE clause
         set_clauses = []
-        values = [entry_id]
+        values: list[Any] = [entry_id]
         param_count = 2
 
         for key, value in updates.items():
-            if key in [
-                "status",
-                "attempts",
-                "last_error",
-                "erp_docid",
-                "event_type",
-            ]:
+            if key in _UPDATABLE_COLUMNS:
                 set_clauses.append(f"{key} = ${param_count}")
                 values.append(value)
                 param_count += 1
 
-        # Always update updated_at
         set_clauses.append(f"updated_at = ${param_count}")
-        values.append(datetime.utcnow())
-        param_count += 1
-
-        if not set_clauses:
-            logger.warning(f"No valid fields to update for entry {entry_id}")
-            return {}
+        values.append(updates.get("updated_at") or datetime.utcnow())
 
         query = f"""
             UPDATE adapter_ledger_entries
             SET {', '.join(set_clauses)}
             WHERE id = $1
             RETURNING id, tenant_id, platform_entity_id, event_type, external_doctype,
-                      payload_hash, status, attempts, last_error, erp_docid,
+                      payload_hash, status, attempts, last_error, erp_docid, notes,
                       created_at, updated_at
         """
 
@@ -185,8 +214,8 @@ class PostgresLedgerRepo:
                 row = await conn.fetchrow(query, *values)
                 if row:
                     logger.info(f"Updated ledger entry: {entry_id}")
-                    return dict(row)
-                return {}
+                    return LedgerEntryRecord.from_row(row)
+                return None
         except Exception as exc:
             logger.error(f"Error updating ledger entry: {exc}")
             raise
@@ -196,7 +225,7 @@ class PostgresLedgerRepo:
         tenant_id: UUID,
         statuses: Optional[list[str]] = None,
         limit: int = 1000,
-    ) -> list[dict[str, Any]]:
+    ) -> list[LedgerEntryRecord]:
         """
         Get all ledger entries for a tenant with optional status filter.
 
@@ -206,13 +235,13 @@ class PostgresLedgerRepo:
             limit: Max records to return
 
         Returns:
-            List of ledger entry dicts
+            List of LedgerEntryRecord
         """
         if statuses:
             status_placeholders = ", ".join(f"${i}" for i in range(2, len(statuses) + 2))
             query = f"""
                 SELECT id, tenant_id, platform_entity_id, event_type, external_doctype,
-                       payload_hash, status, attempts, last_error, erp_docid,
+                       payload_hash, status, attempts, last_error, erp_docid, notes,
                        created_at, updated_at
                 FROM adapter_ledger_entries
                 WHERE tenant_id = $1 AND status IN ({status_placeholders})
@@ -223,7 +252,7 @@ class PostgresLedgerRepo:
         else:
             query = f"""
                 SELECT id, tenant_id, platform_entity_id, event_type, external_doctype,
-                       payload_hash, status, attempts, last_error, erp_docid,
+                       payload_hash, status, attempts, last_error, erp_docid, notes,
                        created_at, updated_at
                 FROM adapter_ledger_entries
                 WHERE tenant_id = $1
@@ -235,7 +264,7 @@ class PostgresLedgerRepo:
         try:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(query, *values)
-                return [dict(row) for row in rows]
+                return [LedgerEntryRecord.from_row(row) for row in rows]
         except Exception as exc:
             logger.error(f"Error querying all ledger entries: {exc}")
             raise
@@ -264,38 +293,40 @@ class PostgresLedgerRepo:
             logger.error(f"Error counting ledger entries by status: {exc}")
             raise
 
+    # --- Reconciliation scan tracking (Day 13: incremental_scan/full_scan) ---
+    # Backed by reconciliation_state, one row per tenant, upserted on each call.
 
-class PostgresLedgerRepoSync:
-    """Synchronous wrapper for PostgreSQL ledger repository (for sync code)."""
+    async def get_last_incremental_scan(self, tenant_id: UUID) -> Optional[datetime]:
+        return await self._get_scan_timestamp(tenant_id, "last_incremental_scan")
 
-    def __init__(self, connection_string: str):
-        """Initialize sync ledger repository wrapper."""
-        import asyncio
+    async def get_last_full_scan(self, tenant_id: UUID) -> Optional[datetime]:
+        return await self._get_scan_timestamp(tenant_id, "last_full_scan")
 
-        self.connection_string = connection_string
-        self.loop = asyncio.new_event_loop()
-        self.repo = PostgresLedgerRepo(connection_string)
-        self.loop.run_until_complete(self.repo.initialize())
+    async def update_last_incremental_scan(self, tenant_id: UUID, timestamp: datetime) -> None:
+        await self._upsert_scan_timestamp(tenant_id, "last_incremental_scan", timestamp)
 
-    def get_by_platform_id(self, tenant_id: UUID, platform_id: UUID) -> Optional[dict]:
-        """Sync wrapper for get_by_platform_id."""
-        return self.loop.run_until_complete(
-            self.repo.get_by_platform_id(tenant_id, platform_id)
-        )
+    async def update_last_full_scan(self, tenant_id: UUID, timestamp: datetime) -> None:
+        await self._upsert_scan_timestamp(tenant_id, "last_full_scan", timestamp)
 
-    def create(self, entry: dict) -> dict:
-        """Sync wrapper for create."""
-        return self.loop.run_until_complete(self.repo.create(entry))
+    async def _get_scan_timestamp(self, tenant_id: UUID, column: str) -> Optional[datetime]:
+        query = f"SELECT {column} FROM reconciliation_state WHERE tenant_id = $1"  # noqa: S608 (column is one of our own two literals, never caller input)
+        try:
+            async with self.pool.acquire() as conn:
+                return await conn.fetchval(query, tenant_id)
+        except Exception as exc:
+            logger.error(f"Error reading {column} for tenant {tenant_id}: {exc}")
+            raise
 
-    def update(self, entry_id: UUID, updates: dict) -> dict:
-        """Sync wrapper for update."""
-        return self.loop.run_until_complete(self.repo.update(entry_id, updates))
-
-    def get_all(self, tenant_id: UUID, statuses: Optional[list] = None) -> list:
-        """Sync wrapper for get_all."""
-        return self.loop.run_until_complete(self.repo.get_all(tenant_id, statuses))
-
-    def shutdown(self) -> None:
-        """Shutdown connection pool."""
-        self.loop.run_until_complete(self.repo.shutdown())
-        self.loop.close()
+    async def _upsert_scan_timestamp(self, tenant_id: UUID, column: str, timestamp: datetime) -> None:
+        query = f"""
+            INSERT INTO reconciliation_state (tenant_id, {column}, updated_at)
+            VALUES ($1, $2, CURRENT_TIMESTAMP)
+            ON CONFLICT (tenant_id) DO UPDATE
+                SET {column} = EXCLUDED.{column}, updated_at = CURRENT_TIMESTAMP
+        """  # noqa: S608 (column is one of our own two literals, never caller input)
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(query, tenant_id, timestamp)
+        except Exception as exc:
+            logger.error(f"Error updating {column} for tenant {tenant_id}: {exc}")
+            raise
