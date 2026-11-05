@@ -1,17 +1,10 @@
 """Comprehensive tests for maintenance service: work requests, staff, and inventory."""
 
-import pytest
-from uuid import uuid4, UUID
-from datetime import date, datetime
+from uuid import UUID, uuid4
 
+import pytest
 from crepro_maintenance.main import app
-from crepro_maintenance.models import (
-    MaintenanceRequest, MaterialUsage, OutsourcedStaff, StaffShift,
-    RequestStatus, RequestPriority, MaterialBillingStatus, StaffCategory
-)
-from crepro_maintenance.repository import (
-    requests, material_usages, outsourced_staff, staff_shifts
-)
+from crepro_maintenance.repository import material_usages, outsourced_staff, requests, staff_shifts
 from fastapi.testclient import TestClient
 
 
@@ -43,7 +36,7 @@ class TestMaintenanceRequestCRUD:
         """Create a request with required fields only."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/maintenance-requests",
             json={
@@ -52,7 +45,7 @@ class TestMaintenanceRequestCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["title"] == "Broken AC"
@@ -63,7 +56,7 @@ class TestMaintenanceRequestCRUD:
         """Create a request with all optional fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/maintenance-requests",
             json={
@@ -76,7 +69,7 @@ class TestMaintenanceRequestCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["description"] == "Water dripping from bedroom ceiling"
@@ -88,7 +81,7 @@ class TestMaintenanceRequestCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/maintenance-requests",
             json={
@@ -97,11 +90,11 @@ class TestMaintenanceRequestCRUD:
             },
             headers=headers,
         )
-        
+
         request_id = create_response.json()["id"]
-        
+
         get_response = client.get(f"/api/v1/maintenance-requests/{request_id}", headers=headers)
-        
+
         assert get_response.status_code == 200
         assert get_response.json()["id"] == request_id
 
@@ -110,7 +103,7 @@ class TestMaintenanceRequestCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/maintenance-requests",
             json={
@@ -119,15 +112,15 @@ class TestMaintenanceRequestCRUD:
             },
             headers=headers,
         )
-        
+
         request_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/maintenance-requests/{request_id}",
             json={"status": "completed", "priority": "high"},
             headers=headers,
         )
-        
+
         assert update_response.status_code == 200
         assert update_response.json()["status"] == "completed"
         assert update_response.json()["priority"] == "high"
@@ -137,7 +130,7 @@ class TestMaintenanceRequestCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/maintenance-requests",
             json={
@@ -146,16 +139,16 @@ class TestMaintenanceRequestCRUD:
             },
             headers=headers,
         )
-        
+
         request_id = create_response.json()["id"]
-        
+
         delete_response = client.delete(
             f"/api/v1/maintenance-requests/{request_id}",
             headers=headers,
         )
-        
+
         assert delete_response.status_code == 204
-        
+
         get_response = client.get(f"/api/v1/maintenance-requests/{request_id}", headers=headers)
         assert get_response.status_code == 404
 
@@ -164,7 +157,7 @@ class TestMaintenanceRequestCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         for i in range(3):
             client.post(
                 "/api/v1/maintenance-requests",
@@ -174,9 +167,9 @@ class TestMaintenanceRequestCRUD:
                 },
                 headers=headers,
             )
-        
+
         list_response = client.get("/api/v1/maintenance-requests", headers=headers)
-        
+
         assert list_response.status_code == 200
         assert len(list_response.json()) == 3
 
@@ -188,7 +181,7 @@ class TestMaterialUsageCRUD:
         """Create a material usage with required fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/material-usages",
             json={
@@ -198,7 +191,7 @@ class TestMaterialUsageCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["item_code"] == "PAINT-001"
@@ -209,7 +202,7 @@ class TestMaterialUsageCRUD:
         """Create a material usage with all fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/material-usages",
             json={
@@ -225,7 +218,7 @@ class TestMaterialUsageCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["description"] == "Interior paint"
@@ -236,7 +229,7 @@ class TestMaterialUsageCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         for i in range(2):
             client.post(
                 "/api/v1/material-usages",
@@ -247,9 +240,9 @@ class TestMaterialUsageCRUD:
                 },
                 headers=headers,
             )
-        
+
         list_response = client.get("/api/v1/material-usages", headers=headers)
-        
+
         assert list_response.status_code == 200
         assert len(list_response.json()) == 2
 
@@ -261,7 +254,7 @@ class TestOutsourcedStaffCRUD:
         """Create an outsourced staff member."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/outsourced-staff",
             json={
@@ -269,18 +262,18 @@ class TestOutsourcedStaffCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["full_name"] == "John Cleaner"
         assert data["category"] == "other"
-        assert data["is_active"] == True
+        assert data["is_active"]
 
     def test_create_staff_with_fields(self):
         """Create a staff member with all fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/outsourced-staff",
             json={
@@ -291,7 +284,7 @@ class TestOutsourcedStaffCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         assert response.json()["category"] == "security"
 
@@ -300,7 +293,7 @@ class TestOutsourcedStaffCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         for i in range(2):
             client.post(
                 "/api/v1/outsourced-staff",
@@ -309,9 +302,9 @@ class TestOutsourcedStaffCRUD:
                 },
                 headers=headers,
             )
-        
+
         list_response = client.get("/api/v1/outsourced-staff", headers=headers)
-        
+
         assert list_response.status_code == 200
         assert len(list_response.json()) == 2
 
@@ -323,7 +316,7 @@ class TestStaffShiftCRUD:
         """Create a staff shift."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/staff-shifts",
             json={
@@ -331,7 +324,7 @@ class TestStaffShiftCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == "Night Security"
@@ -341,7 +334,7 @@ class TestStaffShiftCRUD:
         """Create a shift with all fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/staff-shifts",
             json={
@@ -351,7 +344,7 @@ class TestStaffShiftCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["category"] == "cleaning"
@@ -366,7 +359,7 @@ class TestMaintenanceCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/maintenance-requests",
             json={
@@ -375,14 +368,14 @@ class TestMaintenanceCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         request_id = create_response.json()["id"]
-        
+
         get_response = client.get(
             f"/api/v1/maintenance-requests/{request_id}",
             headers=_headers(tenant_b),
         )
-        
+
         assert get_response.status_code == 404
 
     def test_request_isolation_list(self):
@@ -390,7 +383,7 @@ class TestMaintenanceCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         for _ in range(2):
             client.post(
                 "/api/v1/maintenance-requests",
@@ -400,7 +393,7 @@ class TestMaintenanceCrossTenantIsolation:
                 },
                 headers=_headers(tenant_a),
             )
-        
+
         client.post(
             "/api/v1/maintenance-requests",
             json={
@@ -409,10 +402,10 @@ class TestMaintenanceCrossTenantIsolation:
             },
             headers=_headers(tenant_b),
         )
-        
+
         list_a = client.get("/api/v1/maintenance-requests", headers=_headers(tenant_a))
         list_b = client.get("/api/v1/maintenance-requests", headers=_headers(tenant_b))
-        
+
         assert len(list_a.json()) == 2
         assert len(list_b.json()) == 1
 
@@ -421,7 +414,7 @@ class TestMaintenanceCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/material-usages",
             json={
@@ -431,15 +424,15 @@ class TestMaintenanceCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         material_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/material-usages/{material_id}",
             json={"quantity": 10},
             headers=_headers(tenant_b),
         )
-        
+
         assert update_response.status_code == 404
 
 
@@ -451,7 +444,7 @@ class TestMaintenanceSchema:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/maintenance-requests",
             json={
@@ -461,22 +454,22 @@ class TestMaintenanceSchema:
             headers=headers,
         )
         assert create_response.status_code == 201
-        
+
         request_id = create_response.json()["id"]
-        
+
         response = client.patch(
             f"/api/v1/maintenance-requests/{request_id}",
             json={"status": "invalid"},
             headers=headers,
         )
-        
+
         assert response.status_code >= 400
 
     def test_request_invalid_priority(self):
         """Verify invalid priority is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/maintenance-requests",
             json={
@@ -486,14 +479,14 @@ class TestMaintenanceSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
     def test_material_invalid_billing_status(self):
         """Verify invalid billing status is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/material-usages",
             json={
@@ -504,14 +497,14 @@ class TestMaintenanceSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
     def test_staff_invalid_category(self):
         """Verify invalid staff category is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/outsourced-staff",
             json={
@@ -520,7 +513,7 @@ class TestMaintenanceSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
 
@@ -531,7 +524,7 @@ class TestMaintenanceEdgeCases:
         """Verify empty title is allowed."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/maintenance-requests",
             json={
@@ -540,7 +533,7 @@ class TestMaintenanceEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         # Allow empty title
         assert response.status_code == 201
 
@@ -548,7 +541,7 @@ class TestMaintenanceEdgeCases:
         """Verify negative quantity is allowed."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/material-usages",
             json={
@@ -558,7 +551,7 @@ class TestMaintenanceEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         # Allow negative quantities (for reversals/adjustments)
         assert response.status_code == 201
 
@@ -566,7 +559,7 @@ class TestMaintenanceEdgeCases:
         """Verify zero quantity is allowed."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/material-usages",
             json={
@@ -576,19 +569,19 @@ class TestMaintenanceEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
 
     def test_get_nonexistent_request(self):
         """Verify getting nonexistent request returns 404."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.get(
             f"/api/v1/maintenance-requests/{uuid4()}",
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 404
 
     def test_request_status_enum(self):
@@ -596,7 +589,7 @@ class TestMaintenanceEdgeCases:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         for status in ["open", "in_progress", "completed", "cancelled"]:
             # Create request
             create_response = client.post(
@@ -608,9 +601,9 @@ class TestMaintenanceEdgeCases:
                 headers=headers,
             )
             assert create_response.status_code == 201
-            
+
             request_id = create_response.json()["id"]
-            
+
             # Update to target status
             response = client.patch(
                 f"/api/v1/maintenance-requests/{request_id}",
@@ -624,7 +617,7 @@ class TestMaintenanceEdgeCases:
         """Verify all request priorities work."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         for priority in ["low", "medium", "high", "urgent"]:
             response = client.post(
                 "/api/v1/maintenance-requests",
@@ -642,7 +635,7 @@ class TestMaintenanceEdgeCases:
         """Verify all staff categories work."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         for category in ["cleaning", "security", "landscaping", "other"]:
             response = client.post(
                 "/api/v1/outsourced-staff",

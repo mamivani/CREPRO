@@ -64,37 +64,37 @@ The service consists of three core modules:
 
 ### ReconciliationDiscrepancy
 ```python
-id: UUID                                    # Discrepancy ID
-tenant_id: UUID                             # Tenant identifier
-doctype: str                                # ERP document type (Customer, Invoice, etc.)
-docid: str                                  # ERP document ID (CUST-001)
-discrepancy_type: DiscrepancyType           # Type of discrepancy found
-detected_at: datetime                       # When discovered
-resolved: bool = False                      # Marked as resolved?
-resolution_notes: str = ""                  # Operations notes
+id: UUID  # Discrepancy ID
+tenant_id: UUID  # Tenant identifier
+doctype: str  # ERP document type (Customer, Invoice, etc.)
+docid: str  # ERP document ID (CUST-001)
+discrepancy_type: DiscrepancyType  # Type of discrepancy found
+detected_at: datetime  # When discovered
+resolved: bool = False  # Marked as resolved?
+resolution_notes: str = ""  # Operations notes
 ```
 
 ### ScanReport
 ```python
-scan_type: str                              # "incremental" or "full"
-tenant_id: UUID                             # Tenant scanned
-started_at: datetime                        # Scan start time
-completed_at: datetime                      # Scan end time
-total_records_scanned: int                  # Number of records checked
-discrepancies_found: int                    # Number of issues detected
-items_fixed: int                            # Number of auto-fixed items
-manual_review_required: int                 # Items needing ops intervention
+scan_type: str  # "incremental" or "full"
+tenant_id: UUID  # Tenant scanned
+started_at: datetime  # Scan start time
+completed_at: datetime  # Scan end time
+total_records_scanned: int  # Number of records checked
+discrepancies_found: int  # Number of issues detected
+items_fixed: int  # Number of auto-fixed items
+manual_review_required: int  # Items needing ops intervention
 discrepancies: list[ReconciliationDiscrepancy]  # Full discrepancy details
 ```
 
 ### DLQReplayReport
 ```python
-tenant_id: UUID                             # Tenant processed
-replay_started_at: datetime                 # Replay start time
-replay_completed_at: datetime               # Replay end time
-dlq_events_attempted: int                   # Total events attempted
-dlq_events_recovered: int                   # Successfully recovered
-dlq_events_manual_review: int               # Escalated for manual review
+tenant_id: UUID  # Tenant processed
+replay_started_at: datetime  # Replay start time
+replay_completed_at: datetime  # Replay end time
+dlq_events_attempted: int  # Total events attempted
+dlq_events_recovered: int  # Successfully recovered
+dlq_events_manual_review: int  # Escalated for manual review
 ```
 
 ## Testing

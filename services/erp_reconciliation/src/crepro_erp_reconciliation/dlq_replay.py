@@ -52,7 +52,10 @@ async def replay_dlq_events(
 
             try:
                 # Attempt to re-post the event
-                logger.info(f"DLQ replay: re-posting event {dlq_event.original_event_id} (entity {dlq_event.entity_id})")
+                logger.info(
+                    f"DLQ replay: re-posting event {dlq_event.original_event_id} "
+                    f"(entity {dlq_event.entity_id})"
+                )
 
                 success, erp_docid = await adapter_client.post_to_erp_with_retry(
                     tenant_id=dlq_event.tenant_id,

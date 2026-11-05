@@ -1,8 +1,9 @@
 """Test fixtures and utilities for reconciliation tests."""
 
-import pytest
 from datetime import datetime
 from uuid import UUID, uuid4
+
+import pytest
 
 
 class MockERPRecord:
@@ -114,14 +115,13 @@ class MockLedgerRepo:
         self.last_full_scan = {}
 
     def get_by_platform_id(self, tenant_id, platform_id):
-        from uuid import UUID
         # Normalize to UUID for comparison
         if isinstance(platform_id, str):
             try:
                 platform_id = UUID(platform_id)
             except (ValueError, TypeError):
                 pass
-        
+
         for entry in self.entries:
             entry_id = entry.entity_id
             if isinstance(entry_id, str):
@@ -129,12 +129,23 @@ class MockLedgerRepo:
                     entry_id = UUID(entry_id)
                 except (ValueError, TypeError):
                     pass
-            
+
             if entry_id == platform_id and entry.tenant_id == tenant_id:
                 return entry
         return None
 
-    def create(self, tenant_id, entity_id, status, erp_docid, external_doctype, attempts=0, notes="", created_at=None, updated_at=None):
+    def create(
+        self,
+        tenant_id,
+        entity_id,
+        status,
+        erp_docid,
+        external_doctype,
+        attempts=0,
+        notes="",
+        created_at=None,
+        updated_at=None,
+    ):
         entry = MockLedgerEntry(
             tenant_id=tenant_id,
             entity_id=entity_id,

@@ -145,6 +145,7 @@ def reset_repositories():
     properties._rows.clear()
     units._rows.clear()
 
+
 def _headers(tenant_id: UUID | None = None) -> dict[str, str]:
     """Generate request headers with tenant context."""
     return {"X-Tenant-Id": str(tenant_id or uuid4())}

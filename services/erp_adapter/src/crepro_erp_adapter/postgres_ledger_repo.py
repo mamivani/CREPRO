@@ -8,7 +8,7 @@ incremental_scan/full_scan modules read and update on every run.
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 import asyncpg
@@ -91,7 +91,7 @@ class PostgresLedgerRepo:
         self,
         tenant_id: UUID,
         platform_id: UUID,
-    ) -> Optional[LedgerEntryRecord]:
+    ) -> LedgerEntryRecord | None:
         """
         Get ledger entry by platform ID.
 
@@ -175,7 +175,7 @@ class PostgresLedgerRepo:
             logger.error(f"Error creating ledger entry: {exc}")
             raise
 
-    async def update(self, entry_id: UUID, **updates: Any) -> Optional[LedgerEntryRecord]:
+    async def update(self, entry_id: UUID, **updates: Any) -> LedgerEntryRecord | None:
         """
         Update a ledger entry.
 
@@ -202,7 +202,7 @@ class PostgresLedgerRepo:
 
         query = f"""
             UPDATE adapter_ledger_entries
-            SET {', '.join(set_clauses)}
+            SET {", ".join(set_clauses)}
             WHERE id = $1
             RETURNING id, tenant_id, platform_entity_id, event_type, external_doctype,
                       payload_hash, status, attempts, last_error, erp_docid, notes,
@@ -223,7 +223,7 @@ class PostgresLedgerRepo:
     async def get_all(
         self,
         tenant_id: UUID,
-        statuses: Optional[list[str]] = None,
+        statuses: list[str] | None = None,
         limit: int = 1000,
     ) -> list[LedgerEntryRecord]:
         """
@@ -296,10 +296,10 @@ class PostgresLedgerRepo:
     # --- Reconciliation scan tracking (Day 13: incremental_scan/full_scan) ---
     # Backed by reconciliation_state, one row per tenant, upserted on each call.
 
-    async def get_last_incremental_scan(self, tenant_id: UUID) -> Optional[datetime]:
+    async def get_last_incremental_scan(self, tenant_id: UUID) -> datetime | None:
         return await self._get_scan_timestamp(tenant_id, "last_incremental_scan")
 
-    async def get_last_full_scan(self, tenant_id: UUID) -> Optional[datetime]:
+    async def get_last_full_scan(self, tenant_id: UUID) -> datetime | None:
         return await self._get_scan_timestamp(tenant_id, "last_full_scan")
 
     async def update_last_incremental_scan(self, tenant_id: UUID, timestamp: datetime) -> None:
@@ -308,7 +308,7 @@ class PostgresLedgerRepo:
     async def update_last_full_scan(self, tenant_id: UUID, timestamp: datetime) -> None:
         await self._upsert_scan_timestamp(tenant_id, "last_full_scan", timestamp)
 
-    async def _get_scan_timestamp(self, tenant_id: UUID, column: str) -> Optional[datetime]:
+    async def _get_scan_timestamp(self, tenant_id: UUID, column: str) -> datetime | None:
         query = f"SELECT {column} FROM reconciliation_state WHERE tenant_id = $1"  # noqa: S608 (column is one of our own two literals, never caller input)
         try:
             async with self.pool.acquire() as conn:

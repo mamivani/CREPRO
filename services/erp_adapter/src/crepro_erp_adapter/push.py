@@ -206,9 +206,7 @@ async def post_to_erp_with_retry(
             mapped_payload = apply_entity_mapping(external_doctype, payload)
 
             # Try to post
-            success, external_name = await post_to_erp_internal(
-                entity_id, external_doctype, mapped_payload
-            )
+            success, external_name = await post_to_erp_internal(entity_id, external_doctype, mapped_payload)
 
             if success:
                 logger.info(
@@ -219,14 +217,17 @@ async def post_to_erp_with_retry(
 
             # Post failed, will retry
             logger.warning(
-                f"Post failed on attempt {attempt}/{MAX_RETRY_ATTEMPTS}: "
-                f"{external_doctype} {entity_id}"
+                f"Post failed on attempt {attempt}/{MAX_RETRY_ATTEMPTS}: {external_doctype} {entity_id}"
             )
 
             # Update ledger with attempt count
             _update_ledger_attempt(
-                tenant_id, entity_id, adapter_event_type, external_doctype,
-                attempt, f"Attempt {attempt}/{MAX_RETRY_ATTEMPTS} failed"
+                tenant_id,
+                entity_id,
+                adapter_event_type,
+                external_doctype,
+                attempt,
+                f"Attempt {attempt}/{MAX_RETRY_ATTEMPTS} failed",
             )
 
             if attempt < MAX_RETRY_ATTEMPTS:
@@ -238,8 +239,12 @@ async def post_to_erp_with_retry(
         except Exception as exc:
             logger.error(f"Exception on attempt {attempt}: {exc}")
             _update_ledger_attempt(
-                tenant_id, entity_id, adapter_event_type, external_doctype,
-                attempt, f"Attempt {attempt} failed: {str(exc)}"
+                tenant_id,
+                entity_id,
+                adapter_event_type,
+                external_doctype,
+                attempt,
+                f"Attempt {attempt} failed: {str(exc)}",
             )
 
             if attempt < MAX_RETRY_ATTEMPTS:
@@ -247,10 +252,7 @@ async def post_to_erp_with_retry(
                 await asyncio.sleep(backoff_seconds)
 
     # All retries exhausted - mark as FAILED and route to DLQ
-    logger.error(
-        f"Max retries ({MAX_RETRY_ATTEMPTS}) exhausted for "
-        f"{external_doctype} {entity_id}"
-    )
+    logger.error(f"Max retries ({MAX_RETRY_ATTEMPTS}) exhausted for {external_doctype} {entity_id}")
 
     # Final update to ledger
     payload_hash = hashlib.sha256(str(payload).encode()).hexdigest()
@@ -339,10 +341,7 @@ async def route_to_dlq(
             reason=reason,
             payload=payload or {},
         )
-        logger.info(
-            f"Routed to DLQ: event_id={event_id}, entity_id={entity_id}, "
-            f"reason={reason}"
-        )
+        logger.info(f"Routed to DLQ: event_id={event_id}, entity_id={entity_id}, reason={reason}")
     except Exception as exc:
         logger.error(f"Failed to route to DLQ: {exc}")
 

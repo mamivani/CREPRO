@@ -20,7 +20,7 @@ from crepro_erp_adapter.schemas import (
     TenantErpMappingCreate,
     TenantErpMappingUpdate,
 )
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
 

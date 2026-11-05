@@ -1,17 +1,14 @@
 """Tests for full reconciliation scan."""
 
-import pytest
-from datetime import datetime
 from uuid import uuid4
 
+import pytest
 from crepro_erp_reconciliation.full_scan import run_full_scan
 from crepro_erp_reconciliation.models import DiscrepancyType
 
 
 @pytest.mark.asyncio
-async def test_full_scan_finds_no_discrepancies_when_consistent(
-    tenant_id, erp_client, ledger_repo
-):
+async def test_full_scan_finds_no_discrepancies_when_consistent(tenant_id, erp_client, ledger_repo):
     """Full scan finds no issues when all records are consistent."""
     # Setup: Create matching records
     entity_id = uuid4()
@@ -138,9 +135,7 @@ async def test_full_scan_updates_last_scan_time(tenant_id, erp_client, ledger_re
 
 
 @pytest.mark.asyncio
-async def test_full_scan_handles_multiple_discrepancies(
-    tenant_id, erp_client, ledger_repo
-):
+async def test_full_scan_handles_multiple_discrepancies(tenant_id, erp_client, ledger_repo):
     """Full scan correctly handles multiple discrepancies in one scan."""
     # Setup: Create multiple discrepancy scenarios
     # 1. Orphaned ERP record (no ledger)

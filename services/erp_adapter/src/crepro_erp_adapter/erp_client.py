@@ -5,11 +5,9 @@ Uses Azure Key Vault for credential management.
 """
 
 import logging
-from typing import Any, Optional
-from uuid import UUID
+from typing import Any
 
 import httpx
-from requests.auth import HTTPBasicAuth
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +25,7 @@ class ERPClient:
             password: API user password
             timeout: Request timeout in seconds
         """
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.username = username
         self.password = password
         self.timeout = timeout
@@ -36,6 +34,7 @@ class ERPClient:
     def _get_headers(self) -> dict:
         """Get request headers with HTTP Basic Auth."""
         import base64
+
         credentials = f"{self.username}:{self.password}"
         encoded = base64.b64encode(credentials.encode()).decode()
         return {
@@ -48,7 +47,7 @@ class ERPClient:
         self,
         doctype: str,
         platform_id: str,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Query ERP for a single record by platform_id custom field.
 

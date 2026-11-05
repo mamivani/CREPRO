@@ -45,9 +45,9 @@ async def test_initialize_clients_uses_mocks_when_only_some_vars_set(monkeypatch
 
 @pytest.mark.asyncio
 async def test_initialize_clients_builds_real_clients_when_fully_configured(monkeypatch) -> None:
+    from crepro_erp_adapter.adapter_service_client import AdapterServiceClient
     from crepro_erp_adapter.erp_client import ERPClient
     from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
-    from crepro_erp_adapter.adapter_service_client import AdapterServiceClient
 
     monkeypatch.setenv("ERP_BASE_URL", "https://erp.example.com")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@host/db")
@@ -204,9 +204,7 @@ async def test_mock_clients_implement_expected_interface() -> None:
     assert dlq_repo.update(uuid4()) is None
 
     adapter_client = MockAdapterClient()
-    assert await adapter_client.post_to_erp_with_retry(
-        tenant_id, entity_id, "Customer", {}
-    ) == (False, None)
+    assert await adapter_client.post_to_erp_with_retry(tenant_id, entity_id, "Customer", {}) == (False, None)
 
 
 def test_main_invokes_asyncio_run_with_the_reconciliation_job(monkeypatch) -> None:

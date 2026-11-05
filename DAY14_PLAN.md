@@ -117,7 +117,7 @@ ledger_repo = MockLedgerRepo()
 erp_client = ERPClient(
     base_url=os.getenv("ERP_BASE_URL"),
     username=os.getenv("ERP_USERNAME"),
-    password=get_secret("erp-password")
+    password=get_secret("erp-password"),
 )
 ledger_repo = PostgresLedgerRepo(os.getenv("DATABASE_URL"))
 dlq_repo = DaprDLQRepo(get_dapr_client())
@@ -249,6 +249,7 @@ import httpx
 from uuid import UUID, uuid4
 from datetime import datetime
 
+
 class SmokeTest:
     def __init__(self):
         self.property_service = "http://property-service.crepro-dev.svc.cluster.local"
@@ -272,23 +273,20 @@ async def test_create_property_syncs_to_erp():
             "name": "Test Property",
             "type": "RESIDENTIAL",
             "address": "123 Main St",
-            "tenant_id": str(tenant_id)
-        }
+            "tenant_id": str(tenant_id),
+        },
     )
     property_id = response.json()["id"]
-    
+
     # 2. Wait for Dapr pub/sub delivery
     await asyncio.sleep(2)
-    
+
     # 3. Verify in ERP
-    erp_record = await erp_client.get_by_platform_id(
-        "Property",
-        property_id
-    )
+    erp_record = await erp_client.get_by_platform_id("Property", property_id)
     assert erp_record is not None
     assert erp_record["platform_id"] == str(property_id)
     assert erp_record["status"] == "Active"
-    
+
     # 4. Verify ledger entry
     ledger = await ledger_repo.get_by_platform_id(tenant_id, property_id)
     assert ledger.status == "POSTED"
@@ -307,23 +305,20 @@ async def test_retry_policy_on_erp_unavailable():
     """
     # 1. Simulate ERP down
     erp_client.simulate_down()
-    
+
     # 2. Create customer
-    response = await domain_service.post(
-        "/api/customers",
-        json={"name": "Test Customer"}
-    )
+    response = await domain_service.post("/api/customers", json={"name": "Test Customer"})
     customer_id = response.json()["id"]
-    
+
     # 3. Wait for retries (max 31 seconds)
     await asyncio.sleep(35)
-    
+
     # 4. Verify ledger shows FAILED
     ledger = await ledger_repo.get_by_platform_id(tenant_id, customer_id)
     assert ledger.status == "FAILED"
     assert ledger.attempts == 5  # Max retries
     assert "Connection refused" in ledger.last_error
-    
+
     # 5. Verify event in DLQ
     dlq_events = await dlq_repo.get_pending_events(tenant_id)
     assert any(e.entity_id == customer_id for e in dlq_events)
@@ -342,20 +337,19 @@ async def test_dlq_recovery_on_erp_restart():
     """
     # 1. Bring ERP back online
     erp_client.simulate_up()
-    
+
     # 2. Trigger incremental reconciliation (or wait for 15-min schedule)
     response = await reconciliation_service.post(
-        "/api/reconcile",
-        json={"mode": "DLQ_REPLAY", "tenant_id": str(tenant_id)}
+        "/api/reconcile", json={"mode": "DLQ_REPLAY", "tenant_id": str(tenant_id)}
     )
-    
+
     # 3. Wait for completion
     await asyncio.sleep(5)
-    
+
     # 4. Verify ledger updated
     ledger = await ledger_repo.get_by_platform_id(tenant_id, customer_id)
     assert ledger.status == "POSTED"  # Now successful
-    
+
     # 5. Verify DLQ event recovered
     dlq_event = await dlq_repo.get_event(customer_id)
     assert dlq_event.status == "RECOVERED"
@@ -372,15 +366,10 @@ async def test_duplicate_event_creates_one_erp_record():
     """
     # 1. Create invoice
     invoice = await domain_service.post(
-        "/api/invoices",
-        json={
-            "customer_id": customer_id,
-            "amount": 1000,
-            "due_date": "2026-12-01"
-        }
+        "/api/invoices", json={"customer_id": customer_id, "amount": 1000, "due_date": "2026-12-01"}
     )
     invoice_id = invoice.json()["id"]
-    
+
     # 2. Simulate pub/sub publishing twice
     for _ in range(2):
         await dapr_pubsub.publish(
@@ -388,17 +377,17 @@ async def test_duplicate_event_creates_one_erp_record():
             message={
                 "event_id": str(uuid4()),  # Unique event ID
                 "entity_id": str(invoice_id),
-                "action": "CREATE"
-            }
+                "action": "CREATE",
+            },
         )
-    
+
     # 3. Wait for both deliveries
     await asyncio.sleep(3)
-    
+
     # 4. Verify single ERP record
     erp_records = await erp_client.query_by_platform_id("Invoice", invoice_id)
     assert len(erp_records) == 1  # Not 2
-    
+
     # 5. Verify ledger attempts = 2
     ledger = await ledger_repo.get_by_platform_id(tenant_id, invoice_id)
     assert ledger.attempts == 2
@@ -416,21 +405,19 @@ async def test_full_scan_detects_inconsistencies():
     # 1. Create 10 entities
     for i in range(10):
         await domain_service.post("/api/properties", json={"name": f"Property {i}"})
-    
+
     # 2. Simulate external deletion (remove one from ERP)
     erp_records = await erp_client.get_all("Property")
     await erp_client.delete(erp_records[0])  # Delete first one
-    
+
     # 3. Wait for reconciliation
     response = await reconciliation_service.post(
-        "/api/reconcile",
-        json={"mode": "FULL", "tenant_id": str(tenant_id)}
+        "/api/reconcile", json={"mode": "FULL", "tenant_id": str(tenant_id)}
     )
-    
+
     # 4. Verify discrepancy detected
     discrepancies = await reconciliation_service.get(
-        "/api/discrepancies",
-        params={"type": "DELETED_IN_ERP", "tenant_id": str(tenant_id)}
+        "/api/discrepancies", params={"type": "DELETED_IN_ERP", "tenant_id": str(tenant_id)}
     )
     assert len(discrepancies.json()) == 1
 ```

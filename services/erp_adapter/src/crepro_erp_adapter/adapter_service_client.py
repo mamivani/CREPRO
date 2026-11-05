@@ -4,7 +4,6 @@ Day 13 reconciliation uses this to attempt recovery of dead-lettered events.
 """
 
 import logging
-from typing import Any, Optional
 from uuid import UUID
 
 import httpx
@@ -23,7 +22,7 @@ class AdapterServiceClient:
             base_url: Adapter service base URL (e.g., http://erp-adapter.svc.cluster.local)
             timeout: Request timeout in seconds
         """
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
     async def repost_entity(
@@ -32,7 +31,7 @@ class AdapterServiceClient:
         entity_id: UUID,
         external_doctype: str,
         payload: dict,
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """
         Attempt to repost an entity that previously failed.
 
@@ -66,8 +65,7 @@ class AdapterServiceClient:
                     return True, external_name
                 else:
                     logger.warning(
-                        f"Repost failed for {external_doctype} {entity_id}: "
-                        f"status={response.status_code}"
+                        f"Repost failed for {external_doctype} {entity_id}: status={response.status_code}"
                     )
                     return False, None
 
@@ -112,7 +110,7 @@ class AdapterServiceClientSync:
         entity_id: UUID,
         external_doctype: str,
         payload: dict,
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """Sync wrapper for repost_entity."""
         return self.loop.run_until_complete(
             self.client.repost_entity(tenant_id, entity_id, external_doctype, payload)

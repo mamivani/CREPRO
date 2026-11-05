@@ -39,10 +39,11 @@ Event from Dapr
 from dataclasses import dataclass
 from uuid import UUID
 
+
 @dataclass
 class CustomerMapping:
     """Map domain Customer to ERP Customer."""
-    
+
     def to_erp(customer: dict) -> dict:
         """Convert domain customer fields to ERP format."""
         return {
@@ -55,10 +56,11 @@ class CustomerMapping:
             "custom_platform_id": customer.get("platform_id"),
         }
 
+
 @dataclass
 class InvoiceMapping:
     """Map domain Invoice to ERP Sales Invoice."""
-    
+
     def to_erp(invoice: dict) -> dict:
         """Convert domain invoice fields to ERP format."""
         return {
@@ -78,10 +80,11 @@ class InvoiceMapping:
             "custom_platform_id": invoice.get("platform_id"),
         }
 
+
 @dataclass
 class PaymentMapping:
     """Map domain Payment to ERP Payment Entry."""
-    
+
     def to_erp(payment: dict) -> dict:
         """Convert domain payment fields to ERP format."""
         return {
@@ -107,6 +110,7 @@ Add new function:
 import asyncio
 from crepro_erp_adapter.mappings import CustomerMapping, InvoiceMapping, PaymentMapping
 
+
 async def post_to_erp_with_retry(
     tenant_id: str,
     entity_id: UUID,
@@ -117,47 +121,40 @@ async def post_to_erp_with_retry(
 ) -> tuple[bool, str | None]:
     """
     Post to ERP with exponential backoff retry.
-    
+
     Returns (success, external_name).
     On max attempts, updates ledger to FAILED and returns (False, None).
     """
     backoff_times = [1, 2, 4, 8, 16]  # seconds
-    
+
     for attempt in range(1, max_attempts + 1):
         try:
             # Apply entity-specific mapping
             mapped_payload = _apply_entity_mapping(external_doctype, payload)
-            
+
             # Try to post
-            success, external_name = await post_to_erp_internal(
-                entity_id, external_doctype, mapped_payload
-            )
-            
+            success, external_name = await post_to_erp_internal(entity_id, external_doctype, mapped_payload)
+
             if success:
                 return success, external_name
-            
+
             # Update ledger with attempt count
-            _update_ledger_attempt(
-                tenant_id, entity_id, attempt, 
-                f"Attempt {attempt} failed"
-            )
-            
+            _update_ledger_attempt(tenant_id, entity_id, attempt, f"Attempt {attempt} failed")
+
             if attempt < max_attempts:
                 # Wait before retry
                 await asyncio.sleep(backoff_times[attempt - 1])
-        
+
         except Exception as exc:
             logger.error(f"Attempt {attempt} failed: {exc}")
-            _update_ledger_attempt(
-                tenant_id, entity_id, attempt,
-                f"Attempt {attempt} failed: {str(exc)}"
-            )
-            
+            _update_ledger_attempt(tenant_id, entity_id, attempt, f"Attempt {attempt} failed: {str(exc)}")
+
             if attempt < max_attempts:
                 await asyncio.sleep(backoff_times[attempt - 1])
-    
+
     # All retries exhausted
     return False, None
+
 
 def _apply_entity_mapping(external_doctype: str, payload: dict) -> dict:
     """Apply domain-to-ERP field mapping based on doctype."""
@@ -167,7 +164,7 @@ def _apply_entity_mapping(external_doctype: str, payload: dict) -> dict:
         "Sales Invoice": InvoiceMapping.to_erp,
         "Payment Entry": PaymentMapping.to_erp,
     }
-    
+
     mapper = mapping_map.get(external_doctype)
     if mapper:
         return mapper(payload)
@@ -238,24 +235,27 @@ async def test_retry_with_exponential_backoff():
     """Verify exponential backoff timing (1s, 2s, 4s, 8s, 16s)."""
     # Mock post_to_erp_internal to fail first 4 times, succeed on 5th
     attempt_times = []
-    
+
     async def mock_post(entity_id, doctype, payload):
         attempt_times.append(datetime.utcnow())
         if len(attempt_times) < 5:
             return False, None
         return True, "SUCCESS-001"
-    
+
     # Verify backoff timing is correct
+
 
 @pytest.mark.asyncio
 async def test_max_retries_routes_to_dlq():
     """Verify poison message goes to DLQ after 5 attempts."""
+
     # Mock post_to_erp_internal to always fail
     async def mock_post(entity_id, doctype, payload):
         return False, None
-    
+
     # Verify route_to_dlq is called
     # Verify ledger entry has attempts=5 and status=FAILED
+
 
 def test_entity_field_mapping_customer():
     """Customer mapping produces correct ERP fields."""
@@ -265,9 +265,9 @@ def test_entity_field_mapping_customer():
         "type": "company",
         "platform_id": str(uuid4()),
     }
-    
+
     erp_customer = CustomerMapping.to_erp(domain_customer)
-    
+
     assert erp_customer["name"] == "ACME Corp"
     assert erp_customer["customer_type"] == "Company"
     assert erp_customer["custom_platform_id"] == domain_customer["platform_id"]

@@ -1,14 +1,9 @@
 """Comprehensive tests for document service: documents and insurance policies."""
 
-import pytest
-from uuid import uuid4, UUID
-from datetime import date
+from uuid import UUID, uuid4
 
+import pytest
 from crepro_document.main import app
-from crepro_document.models import (
-    Document, InsurancePolicy,
-    DocumentOwnerType, DocumentCategory
-)
 from crepro_document.repository import documents, insurance_policies
 from fastapi.testclient import TestClient
 
@@ -37,7 +32,7 @@ class TestDocumentCRUD:
         """Create a document with required fields only."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/documents",
             json={
@@ -48,7 +43,7 @@ class TestDocumentCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["file_name"] == "deed.pdf"
@@ -59,7 +54,7 @@ class TestDocumentCRUD:
         """Create a document with all optional fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/documents",
             json={
@@ -73,7 +68,7 @@ class TestDocumentCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["category"] == "lease_agreement"
@@ -84,7 +79,7 @@ class TestDocumentCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/documents",
             json={
@@ -95,11 +90,11 @@ class TestDocumentCRUD:
             },
             headers=headers,
         )
-        
+
         document_id = create_response.json()["id"]
-        
+
         get_response = client.get(f"/api/v1/documents/{document_id}", headers=headers)
-        
+
         assert get_response.status_code == 200
         assert get_response.json()["id"] == document_id
 
@@ -108,7 +103,7 @@ class TestDocumentCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/documents",
             json={
@@ -119,15 +114,15 @@ class TestDocumentCRUD:
             },
             headers=headers,
         )
-        
+
         document_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/documents/{document_id}",
             json={"category": "photo", "uploaded_by": "user@example.com"},
             headers=headers,
         )
-        
+
         assert update_response.status_code == 200
         assert update_response.json()["category"] == "photo"
 
@@ -136,7 +131,7 @@ class TestDocumentCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         for i in range(3):
             client.post(
                 "/api/v1/documents",
@@ -148,9 +143,9 @@ class TestDocumentCRUD:
                 },
                 headers=headers,
             )
-        
+
         list_response = client.get("/api/v1/documents", headers=headers)
-        
+
         assert list_response.status_code == 200
         assert len(list_response.json()) == 3
 
@@ -162,7 +157,7 @@ class TestInsurancePolicyCRUD:
         """Create a policy with required fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/insurance-policies",
             json={
@@ -174,7 +169,7 @@ class TestInsurancePolicyCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["provider_name"] == "InsureCorp"
@@ -184,7 +179,7 @@ class TestInsurancePolicyCRUD:
         """Create a policy with all optional fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/insurance-policies",
             json={
@@ -201,7 +196,7 @@ class TestInsurancePolicyCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["policy_type"] == "building"
@@ -213,7 +208,7 @@ class TestInsurancePolicyCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/insurance-policies",
             json={
@@ -225,11 +220,11 @@ class TestInsurancePolicyCRUD:
             },
             headers=headers,
         )
-        
+
         policy_id = create_response.json()["id"]
-        
+
         get_response = client.get(f"/api/v1/insurance-policies/{policy_id}", headers=headers)
-        
+
         assert get_response.status_code == 200
 
     def test_update_policy(self):
@@ -237,7 +232,7 @@ class TestInsurancePolicyCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/insurance-policies",
             json={
@@ -249,15 +244,15 @@ class TestInsurancePolicyCRUD:
             },
             headers=headers,
         )
-        
+
         policy_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/insurance-policies/{policy_id}",
             json={"premium_amount": 20000, "policy_type": "liability"},
             headers=headers,
         )
-        
+
         assert update_response.status_code == 200
         assert update_response.json()["premium_amount"] == 20000
 
@@ -266,7 +261,7 @@ class TestInsurancePolicyCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         for i in range(2):
             client.post(
                 "/api/v1/insurance-policies",
@@ -279,9 +274,9 @@ class TestInsurancePolicyCRUD:
                 },
                 headers=headers,
             )
-        
+
         list_response = client.get("/api/v1/insurance-policies", headers=headers)
-        
+
         assert list_response.status_code == 200
         assert len(list_response.json()) == 2
 
@@ -294,7 +289,7 @@ class TestDocumentCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/documents",
             json={
@@ -305,14 +300,14 @@ class TestDocumentCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         document_id = create_response.json()["id"]
-        
+
         get_response = client.get(
             f"/api/v1/documents/{document_id}",
             headers=_headers(tenant_b),
         )
-        
+
         assert get_response.status_code == 404
 
     def test_document_isolation_list(self):
@@ -320,7 +315,7 @@ class TestDocumentCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         for _ in range(2):
             client.post(
                 "/api/v1/documents",
@@ -332,7 +327,7 @@ class TestDocumentCrossTenantIsolation:
                 },
                 headers=_headers(tenant_a),
             )
-        
+
         client.post(
             "/api/v1/documents",
             json={
@@ -343,10 +338,10 @@ class TestDocumentCrossTenantIsolation:
             },
             headers=_headers(tenant_b),
         )
-        
+
         list_a = client.get("/api/v1/documents", headers=_headers(tenant_a))
         list_b = client.get("/api/v1/documents", headers=_headers(tenant_b))
-        
+
         assert len(list_a.json()) == 2
         assert len(list_b.json()) == 1
 
@@ -355,7 +350,7 @@ class TestDocumentCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/insurance-policies",
             json={
@@ -367,15 +362,15 @@ class TestDocumentCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         policy_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/insurance-policies/{policy_id}",
             json={"premium_amount": 99999},
             headers=_headers(tenant_b),
         )
-        
+
         assert update_response.status_code == 404
 
 
@@ -386,7 +381,7 @@ class TestDocumentSchema:
         """Verify invalid owner type is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/documents",
             json={
@@ -397,14 +392,14 @@ class TestDocumentSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
     def test_document_invalid_category(self):
         """Verify invalid category is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/documents",
             json={
@@ -416,14 +411,14 @@ class TestDocumentSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
     def test_policy_invalid_date_range(self):
         """Verify date ranges are accepted (no validation)."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/insurance-policies",
             json={
@@ -435,7 +430,7 @@ class TestDocumentSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         # No validation - system accepts any date range
         assert response.status_code == 201
 
@@ -443,7 +438,7 @@ class TestDocumentSchema:
         """Verify missing required field is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/documents",
             json={
@@ -453,7 +448,7 @@ class TestDocumentSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
 
@@ -464,7 +459,7 @@ class TestDocumentEdgeCases:
         """Verify zero premium is allowed."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/insurance-policies",
             json={
@@ -477,14 +472,14 @@ class TestDocumentEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
 
     def test_policy_negative_premium(self):
         """Verify negative premium is allowed."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/insurance-policies",
             json={
@@ -497,7 +492,7 @@ class TestDocumentEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         # Allow negative premiums
         assert response.status_code == 201
 
@@ -505,19 +500,19 @@ class TestDocumentEdgeCases:
         """Verify getting nonexistent document returns 404."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.get(
             f"/api/v1/documents/{uuid4()}",
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 404
 
     def test_document_owner_types_enum(self):
         """Verify all document owner types work."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         for owner_type in ["property", "unit", "lease", "resident"]:
             response = client.post(
                 "/api/v1/documents",
@@ -536,7 +531,7 @@ class TestDocumentEdgeCases:
         """Verify all document categories work."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         for category in ["photo", "lease_agreement", "inspection_report"]:
             response = client.post(
                 "/api/v1/documents",
