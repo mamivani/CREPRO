@@ -1,9 +1,9 @@
 """Tests for incremental reconciliation scan."""
 
-import pytest
 from datetime import datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from crepro_erp_reconciliation.incremental_scan import run_incremental_scan
 from crepro_erp_reconciliation.models import DiscrepancyType
 
@@ -40,9 +40,7 @@ async def test_incremental_scan_finds_no_discrepancies_when_all_consistent(
 
 
 @pytest.mark.asyncio
-async def test_incremental_scan_detects_missing_ledger_entry(
-    tenant_id, erp_client, ledger_repo
-):
+async def test_incremental_scan_detects_missing_ledger_entry(tenant_id, erp_client, ledger_repo):
     """Incremental scan detects ERP records with missing ledger entries."""
     # Setup: Add ERP record but no ledger entry
     entity_id = uuid4()
@@ -64,9 +62,7 @@ async def test_incremental_scan_detects_missing_ledger_entry(
 
 
 @pytest.mark.asyncio
-async def test_incremental_scan_detects_external_modifications(
-    tenant_id, erp_client, ledger_repo
-):
+async def test_incremental_scan_detects_external_modifications(tenant_id, erp_client, ledger_repo):
     """Incremental scan detects when ERP records are modified externally."""
     # Setup: Create records where ERP was modified after ledger update
     entity_id = uuid4()
@@ -104,9 +100,7 @@ async def test_incremental_scan_detects_external_modifications(
 
 
 @pytest.mark.asyncio
-async def test_incremental_scan_updates_last_scan_time(
-    tenant_id, erp_client, ledger_repo
-):
+async def test_incremental_scan_updates_last_scan_time(tenant_id, erp_client, ledger_repo):
     """Incremental scan updates last scan time after completion."""
     # Execute
     report = await run_incremental_scan(

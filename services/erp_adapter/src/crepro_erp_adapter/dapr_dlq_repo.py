@@ -64,7 +64,7 @@ class DaprDLQRepo:
             # Use Dapr state management to store the event
             # Key format: dlq:{tenant_id}:{event_id}
             key = f"dlq:{tenant_id}:{event_id}"
-            
+
             # Simulate storing via Dapr (real implementation uses dapr_client.save_state)
             # For testing, we'd mock this
             self.dapr_client.save_state(
@@ -112,9 +112,7 @@ class DaprDLQRepo:
                     event_data = json.loads(result.get("value", "{}"))
 
                     # Filter by routed_at timestamp
-                    routed_at = datetime.fromisoformat(
-                        event_data.get("routed_at", "")
-                    )
+                    routed_at = datetime.fromisoformat(event_data.get("routed_at", ""))
                     if routed_at >= cutoff_time and event_data.get("status") == "PENDING":
                         events.append(event_data)
 

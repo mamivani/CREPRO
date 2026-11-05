@@ -5,7 +5,10 @@ field formats. Each mapping class handles conversion for a specific entity type
 (Customer, Invoice, Payment, etc.).
 """
 
+import logging
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 
 class CustomerMapping:
@@ -121,12 +124,14 @@ class InvoiceMapping:
 
         items = []
         for item in payload.get("items", []):
-            items.append({
-                "item_code": item.get("product_id"),
-                "qty": item.get("quantity", 1),
-                "rate": item.get("unit_price", 0),
-                "amount": item.get("line_amount", 0),
-            })
+            items.append(
+                {
+                    "item_code": item.get("product_id"),
+                    "qty": item.get("quantity", 1),
+                    "rate": item.get("unit_price", 0),
+                    "amount": item.get("line_amount", 0),
+                }
+            )
 
         return {
             "customer": payload.get("customer_id"),
@@ -274,7 +279,7 @@ class AdjustmentMapping:
                 "account": payload.get("account"),  # Expense/income account
                 "debit_in_account_currency": amount if adjustment_type == "credit" else 0,
                 "credit_in_account_currency": amount if adjustment_type == "debit" else 0,
-            }
+            },
         ]
 
         return {
@@ -316,7 +321,3 @@ def apply_entity_mapping(external_doctype: str, payload: dict) -> dict:
             logger.error(f"Error mapping {external_doctype}: {exc}")
             return payload
     return payload
-
-
-import logging
-logger = logging.getLogger(__name__)

@@ -1,16 +1,10 @@
 """Comprehensive tests for lease service: leases, charges, increment rules, exits, and residents."""
 
-import pytest
-from uuid import uuid4, UUID
-from datetime import date
+from uuid import UUID, uuid4
 
+import pytest
 from crepro_lease.main import app
-from crepro_lease.models import (
-    Lease, LeaseCharge, LeaseIncrementRule, LeaseExit, Resident,
-    LeaseStatus, LeaseFrequency, ChargeBasis, IncrementUnit, IncrementType,
-    ExitType, ResidentType, ResidentStatus, SecurityDepositStatus
-)
-from crepro_lease.repository import leases, charges, increment_rules, exits, residents
+from crepro_lease.repository import charges, exits, increment_rules, leases, residents
 from fastapi.testclient import TestClient
 
 
@@ -44,7 +38,7 @@ class TestLeaseCRUD:
         """Create a lease with required fields only."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/leases",
             json={
@@ -56,7 +50,7 @@ class TestLeaseCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["tenant_id"] == str(tenant_id)
@@ -68,7 +62,7 @@ class TestLeaseCRUD:
         """Create a lease with all optional fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/leases",
             json={
@@ -88,7 +82,7 @@ class TestLeaseCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["frequency"] == "quarterly"
@@ -101,7 +95,7 @@ class TestLeaseCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/leases",
             json={
@@ -113,11 +107,11 @@ class TestLeaseCRUD:
             },
             headers=headers,
         )
-        
+
         lease_id = create_response.json()["id"]
-        
+
         get_response = client.get(f"/api/v1/leases/{lease_id}", headers=headers)
-        
+
         assert get_response.status_code == 200
         assert get_response.json()["id"] == lease_id
 
@@ -126,7 +120,7 @@ class TestLeaseCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/leases",
             json={
@@ -138,15 +132,15 @@ class TestLeaseCRUD:
             },
             headers=headers,
         )
-        
+
         lease_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/leases/{lease_id}",
             json={"status": "active", "end_date": "2026-06-01"},
             headers=headers,
         )
-        
+
         assert update_response.status_code == 200
         assert update_response.json()["status"] == "active"
         assert update_response.json()["end_date"] == "2026-06-01"
@@ -156,7 +150,7 @@ class TestLeaseCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/leases",
             json={
@@ -168,13 +162,13 @@ class TestLeaseCRUD:
             },
             headers=headers,
         )
-        
+
         lease_id = create_response.json()["id"]
-        
+
         delete_response = client.delete(f"/api/v1/leases/{lease_id}", headers=headers)
-        
+
         assert delete_response.status_code == 204
-        
+
         get_response = client.get(f"/api/v1/leases/{lease_id}", headers=headers)
         assert get_response.status_code == 404
 
@@ -183,8 +177,8 @@ class TestLeaseCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
-        for i in range(3):
+
+        for _i in range(3):
             client.post(
                 "/api/v1/leases",
                 json={
@@ -196,9 +190,9 @@ class TestLeaseCRUD:
                 },
                 headers=headers,
             )
-        
+
         list_response = client.get("/api/v1/leases", headers=headers)
-        
+
         assert list_response.status_code == 200
         assert len(list_response.json()) == 3
 
@@ -210,7 +204,7 @@ class TestLeaseChargeCRUD:
         """Create a lease charge with required fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/lease-charges",
             json={
@@ -222,18 +216,18 @@ class TestLeaseChargeCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["charge_code"] == "RENT"
         assert data["amount"] == 5000
-        assert data["is_active"] == True
+        assert data["is_active"]
 
     def test_create_charge_with_optional(self):
         """Create a charge with optional fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/lease-charges",
             json={
@@ -249,7 +243,7 @@ class TestLeaseChargeCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["description"] == "Building maintenance fee"
@@ -261,7 +255,7 @@ class TestLeaseChargeCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/lease-charges",
             json={
@@ -273,10 +267,10 @@ class TestLeaseChargeCRUD:
             },
             headers=headers,
         )
-        
+
         charge_id = create_response.json()["id"]
         get_response = client.get(f"/api/v1/lease-charges/{charge_id}", headers=headers)
-        
+
         assert get_response.status_code == 200
 
     def test_update_charge(self):
@@ -284,7 +278,7 @@ class TestLeaseChargeCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/lease-charges",
             json={
@@ -296,18 +290,18 @@ class TestLeaseChargeCRUD:
             },
             headers=headers,
         )
-        
+
         charge_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/lease-charges/{charge_id}",
             json={"amount": 5500, "is_active": False},
             headers=headers,
         )
-        
+
         assert update_response.status_code == 200
         assert update_response.json()["amount"] == 5500
-        assert update_response.json()["is_active"] == False
+        assert not update_response.json()["is_active"]
 
 
 class TestResidentCRUD:
@@ -317,13 +311,13 @@ class TestResidentCRUD:
         """Create a resident with required fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/residents",
             json={"full_name": "John Doe"},
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["full_name"] == "John Doe"
@@ -336,7 +330,7 @@ class TestResidentCRUD:
         tenant_id = uuid4()
         lease_id = uuid4()
         unit_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/residents",
             json={
@@ -354,7 +348,7 @@ class TestResidentCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["email"] == "jane@example.com"
@@ -366,16 +360,16 @@ class TestResidentCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         for i in range(2):
             client.post(
                 "/api/v1/residents",
                 json={"full_name": f"Resident {i}"},
                 headers=headers,
             )
-        
+
         list_response = client.get("/api/v1/residents", headers=headers)
-        
+
         assert list_response.status_code == 200
         assert len(list_response.json()) == 2
 
@@ -388,7 +382,7 @@ class TestLeaseExitCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         lease_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/lease-exits",
             json={
@@ -398,7 +392,7 @@ class TestLeaseExitCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["exit_type"] == "expiry"
@@ -411,7 +405,7 @@ class TestLeaseIncrementRuleCRUD:
         """Create an increment rule."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/lease-increment-rules",
             json={
@@ -425,7 +419,7 @@ class TestLeaseIncrementRuleCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["increment_type"] == "percent"
@@ -440,7 +434,7 @@ class TestCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/leases",
             json={
@@ -452,11 +446,11 @@ class TestCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         lease_id = create_response.json()["id"]
-        
+
         get_response = client.get(f"/api/v1/leases/{lease_id}", headers=_headers(tenant_b))
-        
+
         assert get_response.status_code == 404
 
     def test_lease_isolation_list(self):
@@ -464,7 +458,7 @@ class TestCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         for _ in range(2):
             client.post(
                 "/api/v1/leases",
@@ -477,7 +471,7 @@ class TestCrossTenantIsolation:
                 },
                 headers=_headers(tenant_a),
             )
-        
+
         client.post(
             "/api/v1/leases",
             json={
@@ -489,10 +483,10 @@ class TestCrossTenantIsolation:
             },
             headers=_headers(tenant_b),
         )
-        
+
         list_a = client.get("/api/v1/leases", headers=_headers(tenant_a))
         list_b = client.get("/api/v1/leases", headers=_headers(tenant_b))
-        
+
         assert len(list_a.json()) == 2
         assert len(list_b.json()) == 1
 
@@ -501,7 +495,7 @@ class TestCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/lease-charges",
             json={
@@ -513,15 +507,15 @@ class TestCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         charge_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/lease-charges/{charge_id}",
             json={"amount": 6000},
             headers=_headers(tenant_b),
         )
-        
+
         assert update_response.status_code == 404
 
     def test_resident_isolation_delete(self):
@@ -529,20 +523,20 @@ class TestCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/residents",
             json={"full_name": "John Doe"},
             headers=_headers(tenant_a),
         )
-        
+
         resident_id = create_response.json()["id"]
-        
+
         delete_response = client.delete(
             f"/api/v1/residents/{resident_id}",
             headers=_headers(tenant_b),
         )
-        
+
         assert delete_response.status_code == 404
 
 
@@ -553,7 +547,7 @@ class TestLeaseSchema:
         """Verify end_date must be after start_date."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/leases",
             json={
@@ -565,7 +559,7 @@ class TestLeaseSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         # May or may not validate date ranges at creation time
         if response.status_code < 400:
             # If accepted, verify it was created with those dates
@@ -575,7 +569,7 @@ class TestLeaseSchema:
         """Verify invalid status is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/leases",
             json={
@@ -588,14 +582,14 @@ class TestLeaseSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
     def test_charge_invalid_basis(self):
         """Verify invalid charge basis is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/lease-charges",
             json={
@@ -608,14 +602,14 @@ class TestLeaseSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
     def test_resident_invalid_type(self):
         """Verify invalid resident type is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/residents",
             json={
@@ -624,7 +618,7 @@ class TestLeaseSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
 
@@ -635,7 +629,7 @@ class TestLeaseEdgeCases:
         """Verify negative security deposit is allowed."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/leases",
             json={
@@ -648,7 +642,7 @@ class TestLeaseEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         # Allow negative amounts
         assert response.status_code == 201
 
@@ -656,7 +650,7 @@ class TestLeaseEdgeCases:
         """Verify negative charge amount is allowed."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/lease-charges",
             json={
@@ -668,7 +662,7 @@ class TestLeaseEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         # Allow negative amounts (refunds/credits)
         assert response.status_code == 201
 
@@ -676,7 +670,7 @@ class TestLeaseEdgeCases:
         """Verify missing required field is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/leases",
             json={
@@ -687,39 +681,39 @@ class TestLeaseEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
     def test_get_nonexistent_lease(self):
         """Verify getting nonexistent lease returns 404."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.get(
             f"/api/v1/leases/{uuid4()}",
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 404
 
     def test_update_nonexistent_charge(self):
         """Verify updating nonexistent charge returns 404."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.patch(
             f"/api/v1/lease-charges/{uuid4()}",
             json={"amount": 5000},
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 404
 
     def test_lease_frequency_enum(self):
         """Verify all lease frequency values work."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         for freq in ["monthly", "quarterly", "annually"]:
             response = client.post(
                 "/api/v1/leases",

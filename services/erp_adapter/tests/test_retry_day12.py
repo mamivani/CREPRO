@@ -1,28 +1,25 @@
 """Tests for Day 12: Adapter mappings, retry policy, and DLQ routing."""
 
-import asyncio
 from datetime import datetime
 from uuid import uuid4
 
 import pytest
 from crepro_common import EventEnvelope
-from crepro_erp_adapter.main import app
 from crepro_erp_adapter.mappings import (
+    AdjustmentMapping,
     CustomerMapping,
     InvoiceMapping,
     PaymentMapping,
     SupplierMapping,
-    AdjustmentMapping,
     apply_entity_mapping,
 )
-from crepro_erp_adapter.models import AdapterEventType, AdapterLedgerStatus
+from crepro_erp_adapter.models import AdapterEventType
 from crepro_erp_adapter.push import (
-    post_to_erp_with_retry,
-    route_to_dlq,
     MAX_RETRY_ATTEMPTS,
     RETRY_BACKOFF_SECONDS,
+    post_to_erp_with_retry,
+    route_to_dlq,
 )
-from fastapi.testclient import TestClient
 
 
 class TestEntityMappings:
@@ -101,7 +98,7 @@ class TestEntityMappings:
                     "quantity": 1,
                     "unit_price": 2000.00,
                     "line_amount": 2000.00,
-                }
+                },
             ],
             "platform_id": str(uuid4()),
         }
@@ -200,18 +197,20 @@ class TestRetryLogic:
             """Mock DLQ routing."""
             pass
 
-        monkeypatch.setattr(
-            "crepro_erp_adapter.push.post_to_erp_internal", mock_post_fail
-        )
-        monkeypatch.setattr(
-            "crepro_erp_adapter.push.route_to_dlq", mock_dlq
-        )
+        monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp_internal", mock_post_fail)
+        monkeypatch.setattr("crepro_erp_adapter.push.route_to_dlq", mock_dlq)
 
         import httpx
+
         async with httpx.AsyncClient() as client:
             success, external_name = await post_to_erp_with_retry(
-                tenant_id, entity_id, client, "Customer", {"name": "Test"},
-                event_id, AdapterEventType.CUSTOMER_UPSERTED
+                tenant_id,
+                entity_id,
+                client,
+                "Customer",
+                {"name": "Test"},
+                event_id,
+                AdapterEventType.CUSTOMER_UPSERTED,
             )
 
         # Verify all 5 attempts were made
@@ -220,11 +219,12 @@ class TestRetryLogic:
 
         # Verify backoff timing (allowing ±0.5s tolerance for execution time)
         for i in range(1, len(attempt_times)):
-            time_diff = (attempt_times[i] - attempt_times[i-1]).total_seconds()
-            expected_backoff = RETRY_BACKOFF_SECONDS[i-1]
+            time_diff = (attempt_times[i] - attempt_times[i - 1]).total_seconds()
+            expected_backoff = RETRY_BACKOFF_SECONDS[i - 1]
             # Allow 0.5s tolerance for test execution time
-            assert expected_backoff - 0.5 <= time_diff <= expected_backoff + 1.0, \
-                f"Attempt {i+1}: expected ~{expected_backoff}s, got {time_diff}s"
+            assert expected_backoff - 0.5 <= time_diff <= expected_backoff + 1.0, (
+                f"Attempt {i + 1}: expected ~{expected_backoff}s, got {time_diff}s"
+            )
 
     @pytest.mark.asyncio
     async def test_retry_succeeds_on_second_attempt(self, monkeypatch) -> None:
@@ -241,16 +241,19 @@ class TestRetryLogic:
                 return False, None
             return True, "CUST-001"
 
-        monkeypatch.setattr(
-            "crepro_erp_adapter.push.post_to_erp_internal",
-            mock_post_eventually_succeeds
-        )
+        monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp_internal", mock_post_eventually_succeeds)
 
         import httpx
+
         async with httpx.AsyncClient() as client:
             success, external_name = await post_to_erp_with_retry(
-                tenant_id, entity_id, client, "Customer", {"name": "Test"},
-                event_id, AdapterEventType.CUSTOMER_UPSERTED
+                tenant_id,
+                entity_id,
+                client,
+                "Customer",
+                {"name": "Test"},
+                event_id,
+                AdapterEventType.CUSTOMER_UPSERTED,
             )
 
         assert success is True
@@ -271,18 +274,20 @@ class TestRetryLogic:
         async def mock_dlq_route(*args, **kwargs):
             dlq_called[0] = True
 
-        monkeypatch.setattr(
-            "crepro_erp_adapter.push.post_to_erp_internal", mock_post_always_fails
-        )
-        monkeypatch.setattr(
-            "crepro_erp_adapter.push.route_to_dlq", mock_dlq_route
-        )
+        monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp_internal", mock_post_always_fails)
+        monkeypatch.setattr("crepro_erp_adapter.push.route_to_dlq", mock_dlq_route)
 
         import httpx
+
         async with httpx.AsyncClient() as client:
             success, external_name = await post_to_erp_with_retry(
-                tenant_id, entity_id, client, "Customer", {"name": "Test"},
-                event_id, AdapterEventType.CUSTOMER_UPSERTED
+                tenant_id,
+                entity_id,
+                client,
+                "Customer",
+                {"name": "Test"},
+                event_id,
+                AdapterEventType.CUSTOMER_UPSERTED,
             )
 
         assert success is False
@@ -301,9 +306,7 @@ class TestRetryLogic:
             posted_payloads.append(payload)
             return True, "CUST-001"
 
-        monkeypatch.setattr(
-            "crepro_erp_adapter.push.post_to_erp_internal", mock_post_capture_payload
-        )
+        monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp_internal", mock_post_capture_payload)
 
         domain_payload = {
             "name": "Test Customer",
@@ -313,10 +316,16 @@ class TestRetryLogic:
         }
 
         import httpx
+
         async with httpx.AsyncClient() as client:
             await post_to_erp_with_retry(
-                tenant_id, entity_id, client, "Customer", domain_payload,
-                event_id, AdapterEventType.CUSTOMER_UPSERTED
+                tenant_id,
+                entity_id,
+                client,
+                "Customer",
+                domain_payload,
+                event_id,
+                AdapterEventType.CUSTOMER_UPSERTED,
             )
 
         # Verify mapping was applied (field names changed)
@@ -344,10 +353,8 @@ class TestDLQRouting:
             # Note: In real environment, Dapr sidecar would be running
             # For now, we just verify the function doesn't crash during call setup
             import asyncio
-            task = route_to_dlq(
-                tenant_id, event_id, entity_id, "Customer",
-                "Max retries exhausted"
-            )
+
+            task = route_to_dlq(tenant_id, event_id, entity_id, "Customer", "Max retries exhausted")
             # Don't actually await since we don't have Dapr running
             assert asyncio.iscoroutine(task)
             task.close()  # Cleanup
@@ -382,11 +389,10 @@ class TestRetryIntegration:
             retry_call_count[0] += 1
             return True, "CUST-001"
 
-        monkeypatch.setattr(
-            "crepro_erp_adapter.push.post_to_erp_with_retry", mock_retry
-        )
+        monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp_with_retry", mock_retry)
 
         import httpx
+
         async with httpx.AsyncClient() as client:
             result = await process_event(event, client)
 
@@ -407,7 +413,7 @@ class TestDayTwelveExitCriteria:
             "Journal Entry": AdjustmentMapping,
         }
 
-        for doctype, mapper in entity_types.items():
+        for _doctype, mapper in entity_types.items():
             assert hasattr(mapper, "to_erp")
             # Test can be called
             result = mapper.to_erp({"platform_id": str(uuid4())})

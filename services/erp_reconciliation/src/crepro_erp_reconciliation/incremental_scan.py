@@ -4,9 +4,7 @@ import logging
 from datetime import datetime
 from uuid import UUID
 
-from crepro_common import EventEnvelope
-
-from .models import ReconciliationDiscrepancy, ScanReport, DiscrepancyType
+from .models import DiscrepancyType, ReconciliationDiscrepancy, ScanReport
 
 logger = logging.getLogger(__name__)
 

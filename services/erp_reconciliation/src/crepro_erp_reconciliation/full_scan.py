@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from uuid import UUID
 
-from .models import ReconciliationDiscrepancy, ScanReport, DiscrepancyType
+from .models import DiscrepancyType, ReconciliationDiscrepancy, ScanReport
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ Enables post-mortem analysis and reconciliation.
 
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 import asyncpg
@@ -49,7 +49,7 @@ class PostgresLedgerRepo:
         self,
         tenant_id: UUID,
         platform_id: UUID,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Get ledger entry by platform ID.
 
@@ -173,7 +173,7 @@ class PostgresLedgerRepo:
 
         query = f"""
             UPDATE adapter_ledger_entries
-            SET {', '.join(set_clauses)}
+            SET {", ".join(set_clauses)}
             WHERE id = $1
             RETURNING id, tenant_id, platform_entity_id, event_type, external_doctype,
                       payload_hash, status, attempts, last_error, erp_docid,
@@ -194,7 +194,7 @@ class PostgresLedgerRepo:
     async def get_all(
         self,
         tenant_id: UUID,
-        statuses: Optional[list[str]] = None,
+        statuses: list[str] | None = None,
         limit: int = 1000,
     ) -> list[dict[str, Any]]:
         """
@@ -277,11 +277,9 @@ class PostgresLedgerRepoSync:
         self.repo = PostgresLedgerRepo(connection_string)
         self.loop.run_until_complete(self.repo.initialize())
 
-    def get_by_platform_id(self, tenant_id: UUID, platform_id: UUID) -> Optional[dict]:
+    def get_by_platform_id(self, tenant_id: UUID, platform_id: UUID) -> dict | None:
         """Sync wrapper for get_by_platform_id."""
-        return self.loop.run_until_complete(
-            self.repo.get_by_platform_id(tenant_id, platform_id)
-        )
+        return self.loop.run_until_complete(self.repo.get_by_platform_id(tenant_id, platform_id))
 
     def create(self, entry: dict) -> dict:
         """Sync wrapper for create."""
@@ -291,7 +289,7 @@ class PostgresLedgerRepoSync:
         """Sync wrapper for update."""
         return self.loop.run_until_complete(self.repo.update(entry_id, updates))
 
-    def get_all(self, tenant_id: UUID, statuses: Optional[list] = None) -> list:
+    def get_all(self, tenant_id: UUID, statuses: list | None = None) -> list:
         """Sync wrapper for get_all."""
         return self.loop.run_until_complete(self.repo.get_all(tenant_id, statuses))
 

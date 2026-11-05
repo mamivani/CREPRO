@@ -5,7 +5,6 @@ from uuid import uuid4
 import pytest
 from crepro_common import EventEnvelope
 from crepro_erp_adapter.main import app
-from crepro_erp_adapter.models import AdapterEventType
 from crepro_erp_adapter.push import process_event
 from fastapi.testclient import TestClient
 
@@ -40,6 +39,7 @@ class TestProcessEvent:
         monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp_with_retry", mock_retry)
 
         import httpx
+
         async with httpx.AsyncClient() as client:
             result = await process_event(event, client)
 
@@ -67,6 +67,7 @@ class TestProcessEvent:
         monkeypatch.setattr("crepro_erp_adapter.push.check_idempotency", mock_idempotency)
 
         import httpx
+
         async with httpx.AsyncClient() as client:
             result = await process_event(event, client)
 
@@ -98,6 +99,7 @@ class TestProcessEvent:
         monkeypatch.setattr("crepro_erp_adapter.push.post_to_erp", mock_post)
 
         import httpx
+
         async with httpx.AsyncClient() as client:
             result = await process_event(event, client)
 
@@ -175,6 +177,7 @@ class TestDuplicateEventIdempotency:
             return True, "SINV-001"
 
         import httpx
+
         async with httpx.AsyncClient() as client:
             # First call: not posted yet, so post via retry
             monkeypatch.setattr("crepro_erp_adapter.push.check_idempotency", mock_idempotency_first)

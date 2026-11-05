@@ -12,12 +12,11 @@ Configuration via environment variables:
 import asyncio
 import logging
 import os
-from datetime import datetime
 from uuid import UUID
 
-from .incremental_scan import run_incremental_scan
-from .full_scan import run_full_scan
 from .dlq_replay import replay_dlq_events
+from .full_scan import run_full_scan
+from .incremental_scan import run_incremental_scan
 
 logging.basicConfig(
     level=logging.INFO,
@@ -95,77 +94,12 @@ class MockAdapterClient:
         return False, None
 
 
-async def run_reconciliation_job():
-    """
-    Main job entry point.
-
-    Runs incremental scan, full scan, and DLQ replay based on environment.
-    """
-    mode = os.getenv("RECONCILIATION_MODE", "INCREMENTAL").upper()
-    tenant_id_str = os.getenv("TENANT_ID", "00000000-0000-0000-0000-000000000000")
-    
-    try:
-        tenant_id = UUID(tenant_id_str)
-    except ValueError:
-        logger.error(f"Invalid TENANT_ID: {tenant_id_str}")
-        return
-
-    # Initialize clients based on environment
-    erp_client, ledger_repo, dlq_repo, adapter_client = await _initialize_clients()
-
-    logger.info(f"Starting reconciliation job in {mode} mode for tenant {tenant_id}")
-
-    try:
-        if mode == "INCREMENTAL":
-            # Run incremental scan (every 15 minutes)
-            logger.info("Running incremental scan...")
-            report = await run_incremental_scan(
-                tenant_id=tenant_id,
-                erp_client=erp_client,
-                ledger_repo=ledger_repo,
-                dlq_repo=dlq_repo,
-            )
-            logger.info(f"Incremental scan report: {report}")
-
-            # Also run DLQ replay
-            logger.info("Running DLQ replay...")
-            dlq_report = await replay_dlq_events(
-                tenant_id=tenant_id,
-                dlq_repo=dlq_repo,
-                adapter_client=adapter_client,
-            )
-            logger.info(f"DLQ replay report: {dlq_report}")
-
-        elif mode == "FULL":
-            # Run full scan (nightly)
-            logger.info("Running full scan...")
-            report = await run_full_scan(
-                tenant_id=tenant_id,
-                erp_client=erp_client,
-                ledger_repo=ledger_repo,
-            )
-            logger.info(f"Full scan report: {report}")
-
-        else:
-            logger.error(f"Unknown reconciliation mode: {mode}")
-
-        logger.info("Reconciliation job completed successfully")
-
-    except Exception as e:
-        logger.error(f"Reconciliation job failed: {e}", exc_info=True)
-        raise
-    finally:
-        # Cleanup
-        if hasattr(ledger_repo, 'shutdown'):
-            await ledger_repo.shutdown()
-
-
 async def _initialize_clients():
     """
     Initialize ERP clients based on environment.
 
     If production URLs provided, uses real clients. Otherwise uses mocks for testing.
-    
+
     Returns:
         (erp_client, ledger_repo, dlq_repo, adapter_client) tuple
     """
@@ -176,12 +110,12 @@ async def _initialize_clients():
 
     if erp_base_url and database_url and adapter_service_url:
         logger.info("Initializing production clients")
-        
+
         # Import real clients (lazy import to avoid dependency if not needed)
+        from crepro_erp_adapter.adapter_service_client import AdapterServiceClient
+        from crepro_erp_adapter.dapr_dlq_repo import DaprDLQRepo
         from crepro_erp_adapter.erp_client import ERPClient
         from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
-        from crepro_erp_adapter.dapr_dlq_repo import DaprDLQRepo
-        from crepro_erp_adapter.adapter_service_client import AdapterServiceClient
 
         # Get credentials from environment/Key Vault
         erp_username = os.getenv("ERP_USERNAME", "Administrator")
@@ -201,6 +135,7 @@ async def _initialize_clients():
         # Initialize real DLQ repository (requires Dapr client)
         try:
             from dapr.clients import DaprClient
+
             dapr_client = DaprClient()
             dlq_repo = DaprDLQRepo(dapr_client)
         except ImportError:
@@ -226,7 +161,7 @@ async def run_reconciliation_job():
     """
     mode = os.getenv("RECONCILIATION_MODE", "INCREMENTAL").upper()
     tenant_id_str = os.getenv("TENANT_ID", "00000000-0000-0000-0000-000000000000")
-    
+
     try:
         tenant_id = UUID(tenant_id_str)
     except ValueError:
@@ -279,9 +214,8 @@ async def run_reconciliation_job():
         raise
     finally:
         # Cleanup
-        if hasattr(ledger_repo, 'shutdown'):
+        if hasattr(ledger_repo, "shutdown"):
             await ledger_repo.shutdown()
-
 
 
 def main():

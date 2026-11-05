@@ -1,10 +1,9 @@
 """Comprehensive tests for reporting service: report definitions."""
 
-import pytest
-from uuid import uuid4, UUID
+from uuid import UUID, uuid4
 
+import pytest
 from crepro_reporting.main import app
-from crepro_reporting.models import ReportDefinition, ReportCategory
 from crepro_reporting.repository import report_definitions
 from fastapi.testclient import TestClient
 
@@ -31,7 +30,7 @@ class TestReportDefinitionCRUD:
         """Create a report with required fields only."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -40,7 +39,7 @@ class TestReportDefinitionCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == "Occupancy Report"
@@ -50,7 +49,7 @@ class TestReportDefinitionCRUD:
         """Create a report with all optional fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -61,7 +60,7 @@ class TestReportDefinitionCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == "Monthly Financial"
@@ -73,7 +72,7 @@ class TestReportDefinitionCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -82,11 +81,11 @@ class TestReportDefinitionCRUD:
             },
             headers=headers,
         )
-        
+
         report_id = create_response.json()["id"]
-        
+
         get_response = client.get(f"/api/v1/report-definitions/{report_id}", headers=headers)
-        
+
         assert get_response.status_code == 200
         assert get_response.json()["id"] == report_id
 
@@ -95,7 +94,7 @@ class TestReportDefinitionCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -104,15 +103,15 @@ class TestReportDefinitionCRUD:
             },
             headers=headers,
         )
-        
+
         report_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/report-definitions/{report_id}",
             json={"description": "New description", "query_reference": "SELECT * FROM tenants"},
             headers=headers,
         )
-        
+
         assert update_response.status_code == 200
         assert update_response.json()["description"] == "New description"
         assert update_response.json()["query_reference"] == "SELECT * FROM tenants"
@@ -122,7 +121,7 @@ class TestReportDefinitionCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -131,16 +130,16 @@ class TestReportDefinitionCRUD:
             },
             headers=headers,
         )
-        
+
         report_id = create_response.json()["id"]
-        
+
         delete_response = client.delete(
             f"/api/v1/report-definitions/{report_id}",
             headers=headers,
         )
-        
+
         assert delete_response.status_code == 204
-        
+
         get_response = client.get(f"/api/v1/report-definitions/{report_id}", headers=headers)
         assert get_response.status_code == 404
 
@@ -149,7 +148,7 @@ class TestReportDefinitionCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         for i in range(3):
             client.post(
                 "/api/v1/report-definitions",
@@ -159,9 +158,9 @@ class TestReportDefinitionCRUD:
                 },
                 headers=headers,
             )
-        
+
         list_response = client.get("/api/v1/report-definitions", headers=headers)
-        
+
         assert list_response.status_code == 200
         assert len(list_response.json()) == 3
 
@@ -174,7 +173,7 @@ class TestReportCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -183,14 +182,14 @@ class TestReportCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         report_id = create_response.json()["id"]
-        
+
         get_response = client.get(
             f"/api/v1/report-definitions/{report_id}",
             headers=_headers(tenant_b),
         )
-        
+
         assert get_response.status_code == 404
 
     def test_report_isolation_list(self):
@@ -198,7 +197,7 @@ class TestReportCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         for _ in range(2):
             client.post(
                 "/api/v1/report-definitions",
@@ -208,7 +207,7 @@ class TestReportCrossTenantIsolation:
                 },
                 headers=_headers(tenant_a),
             )
-        
+
         client.post(
             "/api/v1/report-definitions",
             json={
@@ -217,10 +216,10 @@ class TestReportCrossTenantIsolation:
             },
             headers=_headers(tenant_b),
         )
-        
+
         list_a = client.get("/api/v1/report-definitions", headers=_headers(tenant_a))
         list_b = client.get("/api/v1/report-definitions", headers=_headers(tenant_b))
-        
+
         assert len(list_a.json()) == 2
         assert len(list_b.json()) == 1
 
@@ -229,7 +228,7 @@ class TestReportCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -238,15 +237,15 @@ class TestReportCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         report_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/report-definitions/{report_id}",
             json={"name": "Modified by B"},
             headers=_headers(tenant_b),
         )
-        
+
         assert update_response.status_code == 404
 
     def test_report_isolation_delete(self):
@@ -254,7 +253,7 @@ class TestReportCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -263,14 +262,14 @@ class TestReportCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         report_id = create_response.json()["id"]
-        
+
         delete_response = client.delete(
             f"/api/v1/report-definitions/{report_id}",
             headers=_headers(tenant_b),
         )
-        
+
         assert delete_response.status_code == 404
 
 
@@ -281,7 +280,7 @@ class TestReportSchema:
         """Verify invalid category is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -290,14 +289,14 @@ class TestReportSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
     def test_report_missing_required_field(self):
         """Verify missing required field is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -305,14 +304,14 @@ class TestReportSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
     def test_report_empty_name(self):
         """Verify empty name is allowed."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -321,7 +320,7 @@ class TestReportSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         # Allow empty names
         assert response.status_code == 201
 
@@ -333,44 +332,44 @@ class TestReportEdgeCases:
         """Verify getting nonexistent report returns 404."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.get(
             f"/api/v1/report-definitions/{uuid4()}",
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 404
 
     def test_update_nonexistent_report(self):
         """Verify updating nonexistent report returns 404."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.patch(
             f"/api/v1/report-definitions/{uuid4()}",
             json={"name": "Updated"},
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 404
 
     def test_delete_nonexistent_report(self):
         """Verify deleting nonexistent report returns 404."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.delete(
             f"/api/v1/report-definitions/{uuid4()}",
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 404
 
     def test_report_category_enum(self):
         """Verify all report categories work."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         for category in ["occupancy", "financial", "maintenance", "operations"]:
             response = client.post(
                 "/api/v1/report-definitions",
@@ -387,12 +386,12 @@ class TestReportEdgeCases:
         """Verify listing empty reports returns empty list."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         list_response = client.get(
             "/api/v1/report-definitions",
             headers=_headers(tenant_id),
         )
-        
+
         assert list_response.status_code == 200
         assert list_response.json() == []
 
@@ -400,9 +399,9 @@ class TestReportEdgeCases:
         """Verify long description is accepted."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         long_desc = "A" * 1000
-        
+
         response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -412,7 +411,7 @@ class TestReportEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         assert response.json()["description"] == long_desc
 
@@ -420,7 +419,7 @@ class TestReportEdgeCases:
         """Verify special characters in name are accepted."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/report-definitions",
             json={
@@ -429,5 +428,5 @@ class TestReportEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201

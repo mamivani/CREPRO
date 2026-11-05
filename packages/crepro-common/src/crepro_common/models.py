@@ -1,6 +1,6 @@
 """Outbox entry model for event publishing."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4

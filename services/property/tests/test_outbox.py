@@ -1,10 +1,10 @@
 """Tests for outbox pattern in Property service: atomic writes + event relay."""
 
-import pytest
-from uuid import uuid4, UUID
-from datetime import datetime, UTC
+from datetime import datetime
+from uuid import uuid4
 
-from crepro_common import OutboxEntry, OutboxEntryStatus, EntityNotFoundError
+import pytest
+from crepro_common import EntityNotFoundError, OutboxEntry, OutboxEntryStatus
 from crepro_property.repository import outbox
 
 
@@ -30,10 +30,10 @@ class TestOutboxAtomicity:
             status=OutboxEntryStatus.PENDING,
             payload={"property_id": str(uuid4()), "name": "Test Property"},
         )
-        
+
         # Create entry
         created = outbox.create(entry)
-        
+
         # Verify it's in the repository
         retrieved = outbox.get(tenant_id, created.id)
         assert retrieved.id == created.id
@@ -43,7 +43,7 @@ class TestOutboxAtomicity:
     def test_multiple_entries_create_separate_records(self):
         """Creating multiple outbox entries creates separate records."""
         tenant_id = uuid4()
-        
+
         entries = [
             OutboxEntry(
                 tenant_id=tenant_id,
@@ -56,10 +56,10 @@ class TestOutboxAtomicity:
             )
             for i in range(3)
         ]
-        
+
         # Create entries
         created_ids = [outbox.create(e).id for e in entries]
-        
+
         # Verify all are in the repository
         tenant_outbox = outbox.list(tenant_id)
         assert len(tenant_outbox) == 3
@@ -69,7 +69,7 @@ class TestOutboxAtomicity:
         """Tenant B's outbox entries do not appear in Tenant A's outbox."""
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         # Create entries for both tenants
         entry_a = OutboxEntry(
             tenant_id=tenant_a,
@@ -85,14 +85,14 @@ class TestOutboxAtomicity:
             source="property-service",
             payload={"property_id": str(uuid4())},
         )
-        
+
         outbox.create(entry_a)
         outbox.create(entry_b)
-        
+
         # Verify tenant isolation
         tenant_a_outbox = outbox.list(tenant_a)
         tenant_b_outbox = outbox.list(tenant_b)
-        
+
         assert len(tenant_a_outbox) == 1
         assert len(tenant_b_outbox) == 1
         assert tenant_a_outbox[0].tenant_id == tenant_a
@@ -105,7 +105,7 @@ class TestOutboxRelay:
     def test_get_pending_outbox_entries(self):
         """get_pending_outbox_entries returns only PENDING entries."""
         from crepro_common import get_pending_outbox_entries
-        
+
         tenant_id = uuid4()
         pending1 = OutboxEntry(
             tenant_id=tenant_id,
@@ -125,11 +125,11 @@ class TestOutboxRelay:
             source="property-service",
             status=OutboxEntryStatus.PUBLISHED,
         )
-        
+
         outbox.create(pending1)
         outbox.create(pending2)
         outbox.create(published)
-        
+
         # Get pending
         pending = get_pending_outbox_entries(outbox, tenant_id)
         assert len(pending) == 2
@@ -138,7 +138,7 @@ class TestOutboxRelay:
     def test_mark_outbox_entry_published(self):
         """mark_published sets status to PUBLISHED and sets published_at."""
         from crepro_common import mark_published
-        
+
         tenant_id = uuid4()
         entry = OutboxEntry(
             tenant_id=tenant_id,
@@ -147,10 +147,10 @@ class TestOutboxRelay:
             status=OutboxEntryStatus.PENDING,
         )
         created = outbox.create(entry)
-        
+
         # Mark published
         mark_published(outbox, tenant_id, created.id)
-        
+
         # Verify
         published = outbox.get(tenant_id, created.id)
         assert published.status == OutboxEntryStatus.PUBLISHED
@@ -159,7 +159,7 @@ class TestOutboxRelay:
     def test_mark_outbox_entry_failed(self):
         """mark_failed sets status to FAILED and stores error message."""
         from crepro_common import mark_failed
-        
+
         tenant_id = uuid4()
         entry = OutboxEntry(
             tenant_id=tenant_id,
@@ -168,10 +168,10 @@ class TestOutboxRelay:
             status=OutboxEntryStatus.PENDING,
         )
         created = outbox.create(entry)
-        
+
         # Mark failed
         mark_failed(outbox, tenant_id, created.id, "Service Bus unavailable")
-        
+
         # Verify
         failed = outbox.get(tenant_id, created.id)
         assert failed.status == OutboxEntryStatus.FAILED
@@ -180,7 +180,7 @@ class TestOutboxRelay:
     def test_outbox_entry_retry_count_increments(self):
         """mark_failed increments retry_count."""
         from crepro_common import mark_failed
-        
+
         tenant_id = uuid4()
         entry = OutboxEntry(
             tenant_id=tenant_id,
@@ -190,11 +190,11 @@ class TestOutboxRelay:
             retry_count=0,
         )
         created = outbox.create(entry)
-        
+
         # Mark failed twice
         mark_failed(outbox, tenant_id, created.id, "Error 1")
         mark_failed(outbox, tenant_id, created.id, "Error 2")
-        
+
         # Verify retry_count incremented
         final = outbox.get(tenant_id, created.id)
         assert final.retry_count == 2
@@ -207,7 +207,7 @@ class TestOutboxAtLeastOnceDelivery:
         """Two calls with same event data generate different entries but same event_id dedups at consumer."""
         tenant_id = uuid4()
         event_id = uuid4()
-        
+
         # Create two entries with same event_id (simulating retry/duplicate)
         entry1 = OutboxEntry(
             tenant_id=tenant_id,
@@ -223,14 +223,14 @@ class TestOutboxAtLeastOnceDelivery:
             source="property-service",
             payload={"property_id": "abc123"},
         )
-        
+
         created1 = outbox.create(entry1)
         created2 = outbox.create(entry2)
-        
+
         # Entries have different IDs but same event_id
         assert created1.id != created2.id
         assert created1.event_id == created2.event_id
-        
+
         # Consumer deduplicates by event_id
         all_entries = outbox.list(tenant_id)
         event_ids = [e.event_id for e in all_entries]
@@ -239,7 +239,7 @@ class TestOutboxAtLeastOnceDelivery:
     def test_outbox_preserves_event_ordering(self):
         """Events are retrievable in creation order."""
         tenant_id = uuid4()
-        
+
         # Create entries in sequence
         entry_ids = []
         for i in range(5):
@@ -251,10 +251,10 @@ class TestOutboxAtLeastOnceDelivery:
             )
             created = outbox.create(entry)
             entry_ids.append(created.id)
-        
+
         # Retrieve all for tenant
         retrieved = outbox.list(tenant_id)
-        
+
         # Verify order (InMemoryRepository preserves insertion order)
         assert len(retrieved) == 5
         assert [e.payload["index"] for e in retrieved] == [0, 1, 2, 3, 4]
@@ -266,7 +266,7 @@ class TestOutboxSchema:
     def test_outbox_entry_required_fields(self):
         """OutboxEntry requires tenant_id, event_type, and source."""
         tenant_id = uuid4()
-        
+
         # Valid entry
         entry = OutboxEntry(
             tenant_id=tenant_id,
@@ -294,7 +294,7 @@ class TestOutboxSchema:
             source="property-service",
         )
         assert entry.schema_version == 1
-        
+
         # Can override
         entry2 = OutboxEntry(
             tenant_id=uuid4(),
@@ -311,7 +311,7 @@ class TestOutboxSchema:
             event_type="PropertyCreated",
             source="property-service",
         )
-        
+
         assert entry.created_at is not None
         assert entry.updated_at is not None
         assert entry.published_at is None
@@ -338,7 +338,7 @@ class TestOutboxEdgeCases:
         """OutboxEntry can handle large payload dicts."""
         tenant_id = uuid4()
         large_payload = {f"key_{i}": f"value_{i}" * 100 for i in range(100)}
-        
+
         entry = OutboxEntry(
             tenant_id=tenant_id,
             event_type="PropertyCreated",
@@ -360,11 +360,11 @@ class TestOutboxEdgeCases:
             retry_count=0,
         )
         created = outbox.create(entry)
-        
+
         # Increment to high count
         for _ in range(100):
             created.retry_count += 1
-        
+
         updated = outbox.update(tenant_id, created)
         retrieved = outbox.get(tenant_id, updated.id)
         assert retrieved.retry_count == 100
@@ -373,7 +373,7 @@ class TestOutboxEdgeCases:
         """Getting a non-existent entry raises EntityNotFoundError."""
         tenant_id = uuid4()
         fake_id = uuid4()
-        
+
         with pytest.raises(EntityNotFoundError):
             outbox.get(tenant_id, fake_id)
 
@@ -381,14 +381,14 @@ class TestOutboxEdgeCases:
         """Getting with mismatched tenant_id raises EntityNotFoundError."""
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         entry = OutboxEntry(
             tenant_id=tenant_a,
             event_type="PropertyCreated",
             source="property-service",
         )
         created = outbox.create(entry)
-        
+
         # Try to get with different tenant
         with pytest.raises(EntityNotFoundError):
             outbox.get(tenant_b, created.id)

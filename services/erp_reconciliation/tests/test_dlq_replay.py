@@ -1,19 +1,17 @@
 """Tests for DLQ (Dead-Letter Queue) replay logic."""
 
-import pytest
 from datetime import datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from crepro_erp_reconciliation.dlq_replay import replay_dlq_events
 
 
 @pytest.mark.asyncio
-async def test_dlq_replay_recovers_pending_events_successfully(
-    tenant_id, dlq_repo, adapter_client
-):
+async def test_dlq_replay_recovers_pending_events_successfully(tenant_id, dlq_repo, adapter_client):
     """DLQ replay successfully recovers events that re-post successfully."""
     # Setup: Add pending DLQ event
-    dlq_event = dlq_repo.add_event(
+    dlq_repo.add_event(
         tenant_id=tenant_id,
         status="PENDING",
         original_payload={"name": "Test Customer"},
@@ -42,7 +40,7 @@ async def test_dlq_replay_recovers_pending_events_successfully(
 async def test_dlq_replay_requeues_on_first_failure(tenant_id, dlq_repo, adapter_client):
     """DLQ replay re-queues events on first failure (max 2 attempts)."""
     # Setup: Add pending DLQ event
-    dlq_event = dlq_repo.add_event(
+    dlq_repo.add_event(
         tenant_id=tenant_id,
         status="PENDING",
         dlq_replay_attempts=0,
@@ -68,12 +66,10 @@ async def test_dlq_replay_requeues_on_first_failure(tenant_id, dlq_repo, adapter
 
 
 @pytest.mark.asyncio
-async def test_dlq_replay_escalates_after_max_retries(
-    tenant_id, dlq_repo, adapter_client
-):
+async def test_dlq_replay_escalates_after_max_retries(tenant_id, dlq_repo, adapter_client):
     """DLQ replay escalates to manual review after 2 failed attempts."""
     # Setup: Add event that has already failed once
-    dlq_event = dlq_repo.add_event(
+    dlq_repo.add_event(
         tenant_id=tenant_id,
         status="PENDING",
         dlq_replay_attempts=1,  # Already failed once
@@ -99,9 +95,7 @@ async def test_dlq_replay_escalates_after_max_retries(
 
 
 @pytest.mark.asyncio
-async def test_dlq_replay_only_processes_recent_events(
-    tenant_id, dlq_repo, adapter_client
-):
+async def test_dlq_replay_only_processes_recent_events(tenant_id, dlq_repo, adapter_client):
     """DLQ replay only processes events younger than max_age_hours."""
     # Setup: Add recent and old DLQ events
     recent_event = dlq_repo.add_event(
@@ -109,7 +103,7 @@ async def test_dlq_replay_only_processes_recent_events(
         status="PENDING",
         routed_at=datetime.utcnow(),
     )
-    old_event = dlq_repo.add_event(
+    dlq_repo.add_event(
         tenant_id=tenant_id,
         status="PENDING",
         routed_at=datetime.utcnow() - timedelta(days=2),
@@ -147,9 +141,7 @@ async def test_dlq_replay_handles_missing_events(tenant_id, dlq_repo, adapter_cl
 
 
 @pytest.mark.asyncio
-async def test_dlq_replay_multiple_events_with_mixed_results(
-    tenant_id, dlq_repo, adapter_client
-):
+async def test_dlq_replay_multiple_events_with_mixed_results(tenant_id, dlq_repo, adapter_client):
     """DLQ replay handles multiple events with different outcomes."""
     # Setup: Add multiple events
     # 1. Will succeed
@@ -160,7 +152,7 @@ async def test_dlq_replay_multiple_events_with_mixed_results(
     )
 
     # 2. Will fail once (re-queue)
-    event2 = dlq_repo.add_event(
+    dlq_repo.add_event(
         tenant_id=tenant_id,
         status="PENDING",
         entity_id=uuid4(),
@@ -168,7 +160,7 @@ async def test_dlq_replay_multiple_events_with_mixed_results(
     )
 
     # 3. Will fail twice (manual review)
-    event3 = dlq_repo.add_event(
+    dlq_repo.add_event(
         tenant_id=tenant_id,
         status="PENDING",
         entity_id=uuid4(),

@@ -1,11 +1,9 @@
 """Comprehensive tests for reservation service: short-term bookings."""
 
-import pytest
-from uuid import uuid4, UUID
-from datetime import date
+from uuid import UUID, uuid4
 
+import pytest
 from crepro_reservation.main import app
-from crepro_reservation.models import Reservation, ReservationStatus, ReservationChannel
 from crepro_reservation.repository import reservations
 from fastapi.testclient import TestClient
 
@@ -32,7 +30,7 @@ class TestReservationCRUD:
         """Create a reservation with required fields only."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/reservations",
             json={
@@ -44,7 +42,7 @@ class TestReservationCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["guest_name"] == "John Guest"
@@ -56,7 +54,7 @@ class TestReservationCRUD:
         """Create a reservation with all optional fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/reservations",
             json={
@@ -71,7 +69,7 @@ class TestReservationCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["guest_email"] == "jane@example.com"
@@ -84,7 +82,7 @@ class TestReservationCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/reservations",
             json={
@@ -96,11 +94,11 @@ class TestReservationCRUD:
             },
             headers=headers,
         )
-        
+
         reservation_id = create_response.json()["id"]
-        
+
         get_response = client.get(f"/api/v1/reservations/{reservation_id}", headers=headers)
-        
+
         assert get_response.status_code == 200
         assert get_response.json()["id"] == reservation_id
 
@@ -109,7 +107,7 @@ class TestReservationCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/reservations",
             json={
@@ -121,15 +119,15 @@ class TestReservationCRUD:
             },
             headers=headers,
         )
-        
+
         reservation_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/reservations/{reservation_id}",
             json={"status": "checked_in", "notes": "Early arrival"},
             headers=headers,
         )
-        
+
         assert update_response.status_code == 200
         assert update_response.json()["status"] == "checked_in"
         assert update_response.json()["notes"] == "Early arrival"
@@ -139,7 +137,7 @@ class TestReservationCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/reservations",
             json={
@@ -151,16 +149,16 @@ class TestReservationCRUD:
             },
             headers=headers,
         )
-        
+
         reservation_id = create_response.json()["id"]
-        
+
         delete_response = client.delete(
             f"/api/v1/reservations/{reservation_id}",
             headers=headers,
         )
-        
+
         assert delete_response.status_code == 204
-        
+
         get_response = client.get(f"/api/v1/reservations/{reservation_id}", headers=headers)
         assert get_response.status_code == 404
 
@@ -169,7 +167,7 @@ class TestReservationCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         for i in range(3):
             client.post(
                 "/api/v1/reservations",
@@ -182,9 +180,9 @@ class TestReservationCRUD:
                 },
                 headers=headers,
             )
-        
+
         list_response = client.get("/api/v1/reservations", headers=headers)
-        
+
         assert list_response.status_code == 200
         assert len(list_response.json()) == 3
 
@@ -197,7 +195,7 @@ class TestReservationCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/reservations",
             json={
@@ -209,14 +207,14 @@ class TestReservationCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         reservation_id = create_response.json()["id"]
-        
+
         get_response = client.get(
             f"/api/v1/reservations/{reservation_id}",
             headers=_headers(tenant_b),
         )
-        
+
         assert get_response.status_code == 404
 
     def test_reservation_isolation_list(self):
@@ -224,7 +222,7 @@ class TestReservationCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         for _ in range(2):
             client.post(
                 "/api/v1/reservations",
@@ -237,7 +235,7 @@ class TestReservationCrossTenantIsolation:
                 },
                 headers=_headers(tenant_a),
             )
-        
+
         client.post(
             "/api/v1/reservations",
             json={
@@ -249,10 +247,10 @@ class TestReservationCrossTenantIsolation:
             },
             headers=_headers(tenant_b),
         )
-        
+
         list_a = client.get("/api/v1/reservations", headers=_headers(tenant_a))
         list_b = client.get("/api/v1/reservations", headers=_headers(tenant_b))
-        
+
         assert len(list_a.json()) == 2
         assert len(list_b.json()) == 1
 
@@ -261,7 +259,7 @@ class TestReservationCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/reservations",
             json={
@@ -273,15 +271,15 @@ class TestReservationCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         reservation_id = create_response.json()["id"]
-        
+
         update_response = client.patch(
             f"/api/v1/reservations/{reservation_id}",
             json={"status": "checked_out"},
             headers=_headers(tenant_b),
         )
-        
+
         assert update_response.status_code == 404
 
     def test_reservation_isolation_delete(self):
@@ -289,7 +287,7 @@ class TestReservationCrossTenantIsolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         create_response = client.post(
             "/api/v1/reservations",
             json={
@@ -301,14 +299,14 @@ class TestReservationCrossTenantIsolation:
             },
             headers=_headers(tenant_a),
         )
-        
+
         reservation_id = create_response.json()["id"]
-        
+
         delete_response = client.delete(
             f"/api/v1/reservations/{reservation_id}",
             headers=_headers(tenant_b),
         )
-        
+
         assert delete_response.status_code == 404
 
 
@@ -319,7 +317,7 @@ class TestReservationSchema:
         """Verify date ranges are accepted (no validation)."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/reservations",
             json={
@@ -331,7 +329,7 @@ class TestReservationSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         # No date validation - system accepts any date range
         assert response.status_code == 201
 
@@ -340,7 +338,7 @@ class TestReservationSchema:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         create_response = client.post(
             "/api/v1/reservations",
             json={
@@ -352,22 +350,22 @@ class TestReservationSchema:
             },
             headers=headers,
         )
-        
+
         reservation_id = create_response.json()["id"]
-        
+
         response = client.patch(
             f"/api/v1/reservations/{reservation_id}",
             json={"status": "invalid"},
             headers=headers,
         )
-        
+
         assert response.status_code >= 400
 
     def test_reservation_invalid_channel(self):
         """Verify invalid channel is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/reservations",
             json={
@@ -380,14 +378,14 @@ class TestReservationSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
     def test_reservation_missing_required_field(self):
         """Verify missing required field is rejected."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/reservations",
             json={
@@ -398,7 +396,7 @@ class TestReservationSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code >= 400
 
 
@@ -409,7 +407,7 @@ class TestReservationEdgeCases:
         """Verify zero nightly rate is allowed."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/reservations",
             json={
@@ -421,14 +419,14 @@ class TestReservationEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
 
     def test_reservation_negative_nightly_rate(self):
         """Verify negative nightly rate is allowed."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/reservations",
             json={
@@ -440,7 +438,7 @@ class TestReservationEdgeCases:
             },
             headers=_headers(tenant_id),
         )
-        
+
         # Allow negative rates (discounts/promotions)
         assert response.status_code == 201
 
@@ -448,25 +446,25 @@ class TestReservationEdgeCases:
         """Verify getting nonexistent reservation returns 404."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.get(
             f"/api/v1/reservations/{uuid4()}",
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 404
 
     def test_update_nonexistent_reservation(self):
         """Verify updating nonexistent reservation returns 404."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.patch(
             f"/api/v1/reservations/{uuid4()}",
             json={"status": "confirmed"},
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 404
 
     def test_reservation_status_enum(self):
@@ -474,7 +472,7 @@ class TestReservationEdgeCases:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         for status in ["pending", "confirmed", "checked_in", "checked_out", "cancelled"]:
             # Create with pending
             create_response = client.post(
@@ -489,9 +487,9 @@ class TestReservationEdgeCases:
                 headers=headers,
             )
             assert create_response.status_code == 201
-            
+
             reservation_id = create_response.json()["id"]
-            
+
             # Update to the target status
             update_response = client.patch(
                 f"/api/v1/reservations/{reservation_id}",
@@ -505,7 +503,7 @@ class TestReservationEdgeCases:
         """Verify all reservation channels work."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         for channel in ["direct", "third_party"]:
             response = client.post(
                 "/api/v1/reservations",
