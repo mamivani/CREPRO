@@ -173,3 +173,42 @@ async def test_full_scan_handles_multiple_discrepancies(tenant_id, erp_client, l
     assert report.total_records_scanned >= 2  # At least 2 ERP records checked (CUST-001, CUST-003)
     assert report.discrepancies_found >= 2  # At least 2 discrepancies (orphaned + deleted in ERP)
     assert report.items_fixed >= 1  # At least 1 item fixed
+
+
+@pytest.mark.asyncio
+async def test_full_scan_requires_manual_review_when_source_cannot_be_inferred(
+    tenant_id, erp_client, ledger_repo
+):
+    """Orphaned ERP records without our platform_id custom field can't be
+    reconstructed automatically and must be flagged for manual review instead."""
+    erp_client.add_record("Customer", "CUST-001")
+    erp_client.records[0].platform_id = None  # simulate a record with no platform_id at all
+
+    # Execute
+    report = await run_full_scan(
+        tenant_id=tenant_id,
+        erp_client=erp_client,
+        ledger_repo=ledger_repo,
+    )
+
+    # Assert
+    assert report.discrepancies_found == 1
+    assert report.items_fixed == 0
+    assert report.manual_review_required == 1
+
+
+@pytest.mark.asyncio
+async def test_full_scan_reraises_erp_client_errors(tenant_id, ledger_repo):
+    """Full scan logs and re-raises errors from the ERP client, rather than
+    swallowing them -- it must not record a false 'clean' scan."""
+
+    class BoomERPClient:
+        async def query_all_records(self, **kwargs):
+            raise RuntimeError("ERP unreachable")
+
+    with pytest.raises(RuntimeError, match="ERP unreachable"):
+        await run_full_scan(
+            tenant_id=tenant_id,
+            erp_client=BoomERPClient(),
+            ledger_repo=ledger_repo,
+        )

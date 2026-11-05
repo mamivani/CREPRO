@@ -138,8 +138,8 @@ async def _initialize_clients():
 
             dapr_client = DaprClient()
             dlq_repo = DaprDLQRepo(dapr_client)
-        except ImportError:
-            logger.warning("Dapr client not available, falling back to mock DLQ repo")
+        except Exception:
+            logger.warning("Dapr client not available, falling back to mock DLQ repo", exc_info=True)
             dlq_repo = MockDLQRepo()
 
         # Initialize adapter service client
@@ -223,5 +223,5 @@ def main():
     asyncio.run(run_reconciliation_job())
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover -- exercised by running the module, not by import
     main()

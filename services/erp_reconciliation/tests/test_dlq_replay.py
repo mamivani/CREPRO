@@ -193,3 +193,47 @@ async def test_dlq_replay_multiple_events_with_mixed_results(tenant_id, dlq_repo
     assert dlq_repo.events[0].status == "RECOVERED"
     assert dlq_repo.events[1].status == "PENDING"  # Re-queued
     assert dlq_repo.events[2].status == "MANUAL_REVIEW_REQUIRED"  # Escalated
+
+
+@pytest.mark.asyncio
+async def test_dlq_replay_escalates_to_manual_review_on_adapter_exception(
+    tenant_id, dlq_repo, adapter_client
+):
+    """An unexpected error re-posting a DLQ event (e.g. adapter service down)
+    must not abort the whole replay batch -- just that event, escalated for review."""
+    dlq_repo.add_event(tenant_id=tenant_id, status="PENDING")
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("adapter service down")
+
+    adapter_client.post_to_erp_with_retry = boom
+
+    # Execute
+    report = await replay_dlq_events(
+        tenant_id=tenant_id,
+        dlq_repo=dlq_repo,
+        adapter_client=adapter_client,
+    )
+
+    # Assert
+    assert report.dlq_events_attempted == 1
+    assert report.dlq_events_recovered == 0
+    assert report.dlq_events_manual_review == 1
+    assert dlq_repo.events[0].status == "MANUAL_REVIEW_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_dlq_replay_reraises_dlq_repo_errors(tenant_id, adapter_client):
+    """DLQ replay logs and re-raises errors fetching pending events, rather than
+    swallowing them -- it must not record a false 'clean' replay."""
+
+    class BoomDLQRepo:
+        def get_pending_events(self, **kwargs):
+            raise RuntimeError("state store unreachable")
+
+    with pytest.raises(RuntimeError, match="state store unreachable"):
+        await replay_dlq_events(
+            tenant_id=tenant_id,
+            dlq_repo=BoomDLQRepo(),
+            adapter_client=adapter_client,
+        )
