@@ -138,3 +138,74 @@ async def test_incremental_scan_handles_empty_result(tenant_id, erp_client, ledg
     assert report.total_records_scanned == 0
     assert report.discrepancies_found == 0
     assert report.items_fixed == 0
+
+
+@pytest.mark.asyncio
+async def test_incremental_scan_reposts_failed_entry_and_records_discrepancy(
+    tenant_id, erp_client, ledger_repo
+):
+    """Incremental scan attempts to re-post FAILED entries. `_attempt_repost` isn't
+    fully implemented yet (always returns False, see its docstring), so this
+    currently always records a REPOST_FAILED discrepancy for manual review."""
+    entity_id = uuid4()
+    erp_client.add_record("Customer", "CUST-001", platform_id=str(entity_id))
+    ledger_repo.create(
+        tenant_id=tenant_id,
+        entity_id=entity_id,
+        status="FAILED",
+        erp_docid="CUST-001",
+        external_doctype="Customer",
+    )
+
+    # Execute
+    report = await run_incremental_scan(
+        tenant_id=tenant_id,
+        erp_client=erp_client,
+        ledger_repo=ledger_repo,
+        dlq_repo=None,
+    )
+
+    # Assert
+    assert report.discrepancies_found == 1
+    assert report.manual_review_required == 1
+    assert report.discrepancies[0].discrepancy_type == DiscrepancyType.REPOST_FAILED
+
+
+@pytest.mark.asyncio
+async def test_incremental_scan_reraises_erp_client_errors(tenant_id, ledger_repo):
+    """Incremental scan logs and re-raises errors from the ERP client, rather than
+    swallowing them -- it must not record a false 'clean' scan."""
+
+    class BoomERPClient:
+        async def query_modified_records(self, **kwargs):
+            raise RuntimeError("ERP unreachable")
+
+    with pytest.raises(RuntimeError, match="ERP unreachable"):
+        await run_incremental_scan(
+            tenant_id=tenant_id,
+            erp_client=BoomERPClient(),
+            ledger_repo=ledger_repo,
+            dlq_repo=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_attempt_repost_returns_false_on_unexpected_error(monkeypatch, tenant_id):
+    """`_attempt_repost`'s except branch is defensive: even if logging itself
+    somehow raised, repost must still resolve to False, not propagate."""
+    from crepro_erp_reconciliation import incremental_scan as module
+
+    def boom_warning(*args, **kwargs):
+        raise RuntimeError("logging backend down")
+
+    monkeypatch.setattr(module.logger, "warning", boom_warning)
+
+    result = await module._attempt_repost(
+        tenant_id=tenant_id,
+        entity_id=uuid4(),
+        erp_client=None,
+        ledger_repo=None,
+        ledger_entry=None,
+    )
+
+    assert result is False

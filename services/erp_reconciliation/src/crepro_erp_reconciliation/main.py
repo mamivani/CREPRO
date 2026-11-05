@@ -224,5 +224,5 @@ def main():
     asyncio.run(run_reconciliation_job())
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover -- exercised by running the module, not by import
     main()

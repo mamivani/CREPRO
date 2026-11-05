@@ -150,3 +150,76 @@ async def test_run_reconciliation_job_reraises_scan_failures_after_cleanup(monke
 
     with pytest.raises(RuntimeError, match="scan failed"):
         await run_reconciliation_job()
+
+
+@pytest.mark.asyncio
+async def test_initialize_clients_uses_real_dlq_repo_when_dapr_client_constructs(monkeypatch) -> None:
+    """The DaprDLQRepo branch (as opposed to the MockDLQRepo fallback, covered
+    above) only runs when a Dapr sidecar is actually reachable; fake that here."""
+    import dapr.clients as dapr_clients_module
+    from crepro_erp_adapter.dapr_dlq_repo import DaprDLQRepo
+    from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
+
+    monkeypatch.setenv("ERP_BASE_URL", "https://erp.example.com")
+    monkeypatch.setenv("DATABASE_URL", "******host/db")
+    monkeypatch.setenv("ADAPTER_SERVICE_URL", "http://erp-adapter.internal")
+
+    async def fake_initialize(self):
+        pass
+
+    monkeypatch.setattr(PostgresLedgerRepo, "initialize", fake_initialize)
+    monkeypatch.setattr(dapr_clients_module, "DaprClient", lambda: object())
+
+    _, _, dlq_repo, _ = await _initialize_clients()
+
+    assert isinstance(dlq_repo, DaprDLQRepo)
+
+
+@pytest.mark.asyncio
+async def test_mock_clients_implement_expected_interface() -> None:
+    """The fallback Mock* classes are only ever exercised in the tests above via
+    empty-collection paths (no ERP/ledger/DLQ records to iterate over), so their
+    individual method bodies need direct coverage too."""
+    tenant_id = uuid4()
+    entity_id = uuid4()
+
+    erp_client = MockERPClient()
+    assert await erp_client.get_record(tenant_id, "Customer", "CUST-1") is None
+
+    ledger_repo = MockLedgerRepo()
+    assert ledger_repo.get_by_platform_id(tenant_id, entity_id) is None
+    assert (
+        ledger_repo.create(
+            tenant_id=tenant_id,
+            entity_id=entity_id,
+            status="POSTED",
+            erp_docid="CUST-1",
+            external_doctype="Customer",
+        )
+        is None
+    )
+    assert ledger_repo.update(uuid4()) is None
+
+    dlq_repo = MockDLQRepo()
+    assert dlq_repo.update(uuid4()) is None
+
+    adapter_client = MockAdapterClient()
+    assert await adapter_client.post_to_erp_with_retry(
+        tenant_id, entity_id, "Customer", {}
+    ) == (False, None)
+
+
+def test_main_invokes_asyncio_run_with_the_reconciliation_job(monkeypatch) -> None:
+    import crepro_erp_reconciliation.main as module
+
+    calls = []
+
+    def fake_run(coro):
+        calls.append(coro)
+        coro.close()  # avoid an "coroutine was never awaited" warning
+
+    monkeypatch.setattr(module.asyncio, "run", fake_run)
+
+    module.main()
+
+    assert len(calls) == 1
