@@ -7,6 +7,7 @@ from crepro_common.entities import TenantScopedEntity
 from crepro_common.events import EventEnvelope
 from crepro_common.models import OutboxEntry, OutboxEntryStatus
 from crepro_common.outbox import create_outbox_entry, get_pending_outbox_entries, mark_failed, mark_published
+from crepro_common.outbox_relay import relay_pending_outbox_entries, run_outbox_relay_forever
 from crepro_common.repository import EntityNotFoundError, InMemoryRepository
 from crepro_common.security import InvalidTokenError, TokenClaims, TokenType, decode_token, issue_token_pair
 from crepro_common.tenancy import TenantContext, TenantNotSetError, current_tenant, require_tenant
@@ -34,5 +35,7 @@ __all__ = [
     "issue_token_pair",
     "mark_failed",
     "mark_published",
+    "relay_pending_outbox_entries",
     "require_tenant",
+    "run_outbox_relay_forever",
 ]

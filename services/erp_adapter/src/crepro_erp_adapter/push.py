@@ -12,12 +12,13 @@ Session key: tenantId:entityId (unique per tenant and entity).
 import asyncio
 import hashlib
 import logging
+import os
 from dataclasses import dataclass
-from datetime import datetime
 from uuid import UUID
 
 import httpx
 from crepro_common import EventEnvelope
+from crepro_erp_adapter.erp_client import ERPClient
 from crepro_erp_adapter.mappings import apply_entity_mapping
 from crepro_erp_adapter.models import AdapterEventType, AdapterLedgerEntry, AdapterLedgerStatus
 from crepro_erp_adapter.repository import ledger_entries
@@ -27,6 +28,48 @@ logger = logging.getLogger(__name__)
 # Exponential backoff times (seconds) for retry attempts
 RETRY_BACKOFF_SECONDS = [1, 2, 4, 8, 16]
 MAX_RETRY_ATTEMPTS = 5
+
+# Lazily-resolved singletons: built from the environment on first use so tests
+# that monkeypatch the *_internal functions below never need a real ERP or
+# Dapr state store, while a deployed container resolves real clients once.
+_erp_client: ERPClient | None = None
+_dlq_repo: object | None = None
+_dlq_repo_resolved = False
+
+
+def _resolve_erp_client() -> ERPClient | None:
+    """Return the configured ERPClient, or None if ERP_BASE_URL is not set."""
+    global _erp_client
+    if _erp_client is None:
+        base_url = os.getenv("ERP_BASE_URL")
+        if not base_url:
+            return None
+        _erp_client = ERPClient(
+            base_url=base_url,
+            username=os.getenv("ERP_USERNAME", "Administrator"),
+            password=os.getenv("ERP_PASSWORD", ""),
+        )
+    return _erp_client
+
+
+def _resolve_dlq_repo() -> object | None:
+    """Return a DaprDLQRepo backed by DAPR_STATE_STORE, or None if unconfigured."""
+    global _dlq_repo, _dlq_repo_resolved
+    if _dlq_repo_resolved:
+        return _dlq_repo
+    _dlq_repo_resolved = True
+    state_store = os.getenv("DAPR_STATE_STORE")
+    if not state_store:
+        return None
+    try:
+        from crepro_erp_adapter.dapr_dlq_repo import DaprDLQRepo
+        from dapr.clients import DaprClient
+
+        _dlq_repo = DaprDLQRepo(DaprClient(), state_store=state_store)
+    except Exception:
+        logger.warning("DAPR_STATE_STORE is set but the Dapr client could not be initialized", exc_info=True)
+        _dlq_repo = None
+    return _dlq_repo
 
 
 @dataclass
@@ -48,25 +91,22 @@ async def check_idempotency_internal(
     Check if an entity has already been posted to external ERP via platform_id custom field.
 
     Returns (is_posted, external_name) where external_name is set if already posted.
-    
-    For testing, this is mocked. In production, it queries the external ERP.
+
+    Uses the real ERPClient when ERP_BASE_URL is configured; with no ERP configured
+    (local dev without the external ERP running) this correctly reports "not posted"
+    so the caller proceeds to post_to_erp_internal, which will itself fail cleanly.
     """
+    erp_client = _resolve_erp_client()
+    if erp_client is None:
+        logger.warning(
+            "ERP_BASE_URL not configured; treating %s %s as not yet posted", external_doctype, entity_id
+        )
+        return False, None
     try:
-        # In production, this would call the external ERP API
-        # For now, assume implementation will be provided at integration time
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(
-                "http://localhost:8011/api/resource/{0}".format(external_doctype),
-                params={
-                    "fields": '["name"]',
-                    "filters": '[["custom_platform_id", "=", "{0}"]]'.format(entity_id),
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            if data.get("data") and len(data["data"]) > 0:
-                return True, data["data"][0].get("name")
-            return False, None
+        record = await erp_client.get_by_platform_id(external_doctype, str(entity_id))
+        if record:
+            return True, record.get("name")
+        return False, None
     except Exception as exc:
         logger.error(
             f"Idempotency check failed for {external_doctype} {entity_id}: {exc}",
@@ -83,28 +123,25 @@ async def post_to_erp_internal(
     Post entity to external ERP, adding platform_id for idempotency.
 
     Returns (success, external_name) where external_name is returned if successful.
-    
-    For testing, this is mocked. In production, it calls the external ERP.
+
+    Uses the real ERPClient when ERP_BASE_URL is configured; returns failure (for
+    retry/DLQ handling) when it is not, instead of silently pretending to succeed.
     """
+    erp_client = _resolve_erp_client()
+    if erp_client is None:
+        logger.warning("ERP_BASE_URL not configured; cannot post %s %s", external_doctype, entity_id)
+        return False, None
     try:
-        # Add platform_id to payload for idempotency
         payload_with_platform_id = {
             **payload,
             "custom_platform_id": str(entity_id),
         }
-
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                "http://localhost:8011/api/resource/{0}".format(external_doctype),
-                json=payload_with_platform_id,
-            )
-            response.raise_for_status()
-            data = response.json()
-            external_name = data.get("data", {}).get("name")
-            logger.info(
-                f"Posted {external_doctype}: platform_id={entity_id}, external_name={external_name}",
-            )
-            return True, external_name
+        record = await erp_client.create(external_doctype, payload_with_platform_id)
+        external_name = record.get("name")
+        logger.info(
+            f"Posted {external_doctype}: platform_id={entity_id}, external_name={external_name}",
+        )
+        return True, external_name
     except Exception as exc:
         logger.error(
             f"Failed to post {external_doctype} {entity_id}: {exc}",
@@ -231,8 +268,12 @@ async def post_to_erp_with_retry(
 
     # Route to DLQ
     await route_to_dlq(
-        tenant_id, event_id, entity_id, external_doctype,
-        f"Max retries ({MAX_RETRY_ATTEMPTS}) exhausted"
+        tenant_id,
+        event_id,
+        entity_id,
+        external_doctype,
+        f"Max retries ({MAX_RETRY_ATTEMPTS}) exhausted",
+        payload,
     )
 
     return False, None
@@ -267,32 +308,41 @@ async def route_to_dlq(
     entity_id: UUID,
     external_doctype: str,
     reason: str,
+    payload: dict | None = None,
 ) -> None:
     """
     Route a failed event to the dead-letter queue for manual remediation.
 
-    The DLQ is a separate Dapr pub/sub topic that can be monitored and
-    manually handled when automatic retry is exhausted.
+    Stores the event via Dapr state management (DaprDLQRepo), which Day 13's
+    reconciliation dlq_replay module polls directly -- not a pub/sub topic, since
+    nothing subscribes to one for DLQ events; reconciliation runs on its own schedule.
+    With no DAPR_STATE_STORE configured (local dev without Dapr), the event is only
+    logged: it has already been recorded FAILED in the ledger above for audit/retry.
     """
+    dlq_repo = _resolve_dlq_repo()
+    if dlq_repo is None:
+        logger.warning(
+            f"DAPR_STATE_STORE not configured; DLQ event not persisted: "
+            f"event_id={event_id}, entity_id={entity_id}, reason={reason}"
+        )
+        return
     try:
-        async with httpx.AsyncClient(timeout=30) as dlq_client:
-            # Publish to dead_letter_events topic via Dapr
-            dlq_payload = {
-                "original_event_id": str(event_id),
-                "entity_id": str(entity_id),
-                "external_doctype": external_doctype,
-                "reason": reason,
-                "routed_at": datetime.utcnow().isoformat(),
-                "tenant_id": tenant_id,
-            }
-            await dlq_client.post(
-                "http://localhost:3500/v1.0/publish/pubsub/dead_letter_events",
-                json=dlq_payload,
-            )
-            logger.info(
-                f"Routed to DLQ: event_id={event_id}, entity_id={entity_id}, "
-                f"reason={reason}"
-            )
+        try:
+            tenant_uuid = UUID(tenant_id)
+        except ValueError:
+            tenant_uuid = UUID(int=0)
+        await dlq_repo.store_event(
+            event_id=event_id,
+            tenant_id=tenant_uuid,
+            entity_id=entity_id,
+            external_doctype=external_doctype,
+            reason=reason,
+            payload=payload or {},
+        )
+        logger.info(
+            f"Routed to DLQ: event_id={event_id}, entity_id={entity_id}, "
+            f"reason={reason}"
+        )
     except Exception as exc:
         logger.error(f"Failed to route to DLQ: {exc}")
 
@@ -425,20 +475,14 @@ async def process_event(
 
 async def start_subscriber(dapr_http_url: str = "http://localhost:3500") -> None:
     """
-    Start the Dapr pub/sub subscriber for erp-events topic.
-
-    This is a long-running task that should be started once on app startup.
+    Superseded by the declarative Subscription resource in
+    dapr/components/subscriptions.yaml. Dapr's sidecar has no "register a
+    subscription" HTTP call to make from the app side (the API this function
+    used to call does not exist) -- declarative resources or a GET
+    /dapr/subscribe endpoint are the two real mechanisms. Kept as a no-op for
+    backward compatibility with anything still importing it.
     """
-    async with httpx.AsyncClient(timeout=30) as dapr_client:
-        # Subscribe to erp-events via Dapr
-        try:
-            await dapr_client.post(
-                f"{dapr_http_url}/v1.0/subscribe/pubsub/erp-events",
-                json={"url": "http://localhost:8011/subscribe/erp-events"},
-            )
-            logger.info("Subscribed to erp-events topic via Dapr")
-        except Exception as exc:
-            logger.error(f"Failed to subscribe: {exc}")
+    logger.debug("start_subscriber is a no-op; see dapr/components/subscriptions.yaml")
 
 
 def create_subscriber_handler():
@@ -447,8 +491,9 @@ def create_subscriber_handler():
     async def handle_event(event: EventEnvelope) -> dict:
         """Handle an event pushed by Dapr."""
         async with httpx.AsyncClient(timeout=30) as erp_client:
-            # TODO: Get ERP credentials from Key Vault
-            # For now, assume Basic Auth headers are set via environment
+            # The real ERP client (if configured) is resolved internally by
+            # process_event -> check_idempotency_internal/post_to_erp_internal;
+            # this client is only kept for the existing call signature.
             success = await process_event(event, erp_client)
             return {"success": success}
 

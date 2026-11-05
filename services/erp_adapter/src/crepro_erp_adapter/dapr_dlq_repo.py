@@ -7,7 +7,7 @@ Provides recovery interface for Day 13 reconciliation job.
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -222,62 +222,3 @@ class DaprDLQRepo:
         except Exception as exc:
             logger.error(f"Error deleting DLQ event: {exc}")
             raise
-
-
-class DaprDLQRepoSync:
-    """Synchronous wrapper for Dapr DLQ repository."""
-
-    def __init__(self, dapr_client: Any, state_store: str = "dlq-store"):
-        """Initialize sync DLQ repository wrapper."""
-        import asyncio
-
-        self.dapr_client = dapr_client
-        self.state_store = state_store
-        self.repo = DaprDLQRepo(dapr_client, state_store)
-        self.loop = asyncio.new_event_loop()
-
-    def store_event(
-        self,
-        event_id: UUID,
-        tenant_id: UUID,
-        entity_id: UUID,
-        external_doctype: str,
-        reason: str,
-        payload: dict,
-    ) -> None:
-        """Sync wrapper for store_event."""
-        self.loop.run_until_complete(
-            self.repo.store_event(
-                event_id, tenant_id, entity_id, external_doctype, reason, payload
-            )
-        )
-
-    def get_pending_events(self, tenant_id: UUID, hours: int = 24) -> list[dict]:
-        """Sync wrapper for get_pending_events."""
-        return self.loop.run_until_complete(
-            self.repo.get_pending_events(tenant_id, hours)
-        )
-
-    def update_event(self, event_id: UUID, tenant_id: UUID, updates: dict) -> None:
-        """Sync wrapper for update_event."""
-        self.loop.run_until_complete(
-            self.repo.update_event(event_id, tenant_id, updates)
-        )
-
-    def mark_recovered(self, event_id: UUID, tenant_id: UUID) -> None:
-        """Sync wrapper for mark_recovered."""
-        self.loop.run_until_complete(self.repo.mark_recovered(event_id, tenant_id))
-
-    def mark_manual_review(self, event_id: UUID, tenant_id: UUID) -> None:
-        """Sync wrapper for mark_manual_review."""
-        self.loop.run_until_complete(self.repo.mark_manual_review(event_id, tenant_id))
-
-    def increment_retry_count(self, event_id: UUID, tenant_id: UUID) -> int:
-        """Sync wrapper for increment_retry_count."""
-        return self.loop.run_until_complete(
-            self.repo.increment_retry_count(event_id, tenant_id)
-        )
-
-    def delete_event(self, event_id: UUID, tenant_id: UUID) -> None:
-        """Sync wrapper for delete_event."""
-        self.loop.run_until_complete(self.repo.delete_event(event_id, tenant_id))

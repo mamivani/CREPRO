@@ -1,5 +1,10 @@
 # Day 14 Deployment Guide
 
+> **Correction:** the ad-hoc `crepro-dev-rg` environment this guide's Phase 3 describes has been
+> torn down -- it duplicated the project's real baseline infra (`infra/terraform/environments/dev`,
+> resource group `rg-crepro-dev`). Future deployment work should extend that Terraform instead of
+> re-running Phase 3 as written here.
+
 ## Overview
 
 Day 14 implements full pipeline deployment to Azure Container Apps with real client implementations and smoke tests.

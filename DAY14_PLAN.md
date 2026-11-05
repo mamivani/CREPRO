@@ -1,5 +1,15 @@
 # Day 14 Plan: Full Pipeline Deployment & Smoke Tests
 
+> **Correction (post-Phase 3):** Phase 3's Terraform (`infrastructure/terraform/`) deployed a
+> second, ad-hoc Azure environment (`crepro-dev-rg`) instead of extending the project's actual
+> baseline infra (`infra/terraform/environments/dev`, Day 3, resource group `rg-crepro-dev`,
+> which already provisions a Container App Environment, Postgres, Service Bus, and Key Vault for
+> exactly this purpose). That ad-hoc environment has been torn down. Any future Azure deployment
+> work for Day 14 should add Container Apps/Jobs to `infra/terraform/environments/dev` instead of
+> creating a parallel stack. Pipeline wiring gaps found while preparing that deployment (missing
+> outbox relay, missing Dapr subscription, erp_adapter not using the real ERP client) are fixed
+> independently of infra and do not require Azure.
+
 ## Overview
 Deploy all 11 domain services + ERP adapter + reconciliation job to Azure Dev environment and run smoke tests to verify end-to-end ERP sync with exactly-once semantics.
 
