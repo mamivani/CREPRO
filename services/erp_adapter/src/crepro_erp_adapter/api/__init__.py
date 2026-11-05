@@ -51,6 +51,17 @@ router.include_router(
 )
 
 
+@router.get("/dapr/subscribe", tags=["pub/sub"])
+async def dapr_subscriptions() -> list[dict[str, str]]:
+    """Programmatic subscription list the Dapr sidecar reads at startup.
+
+    Container Apps does not load declarative Subscription YAML, so this is how the erp-events
+    subscription is registered in Azure. Local compose uses dapr/components/subscriptions.yaml for
+    the same route; a duplicate delivery is safe because process_event is idempotent on platform_id.
+    """
+    return [{"pubsubname": "pubsub", "topic": "erp-events", "route": "/subscribe/erp-events"}]
+
+
 # Dapr pub/sub push endpoint
 @router.post("/subscribe/erp-events", tags=["pub/sub"])
 async def subscribe_erp_events(event: EventEnvelope) -> dict:
