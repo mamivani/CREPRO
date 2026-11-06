@@ -5,8 +5,7 @@ Configuration via environment variables:
 - RECONCILIATION_MODE: INCREMENTAL or FULL
 - TENANT_ID: UUID of tenant to reconcile
 - ERP_BASE_URL: Optional ERP base URL (if set, uses real ERP client)
-- DATABASE_URL: Optional PostgreSQL connection string
-- DAPR_STATE_STORE: Optional Dapr state store name
+- DATABASE_URL: Optional PostgreSQL connection string (ledger, reconciliation state, and DLQ)
 """
 
 import asyncio
@@ -77,11 +76,11 @@ class MockLedgerRepo:
 class MockDLQRepo:
     """Mock DLQ repository for development/testing."""
 
-    def get_pending_events(self, tenant_id, routed_after, status):
+    async def get_pending_events(self, tenant_id, routed_after, status):
         """Get pending DLQ events."""
         return []
 
-    def update(self, event_id, **kwargs):
+    async def update(self, event_id, **kwargs):
         """Update a DLQ event."""
         pass
 
@@ -89,8 +88,8 @@ class MockDLQRepo:
 class MockAdapterClient:
     """Mock adapter service client."""
 
-    async def post_to_erp_with_retry(self, tenant_id, entity_id, external_doctype, payload, dlq_replay=False):
-        """Post to ERP with retry."""
+    async def repost_entity(self, tenant_id, entity_id, external_doctype, payload):
+        """Repost an entity through the adapter service."""
         return False, None
 
 
@@ -114,6 +113,7 @@ async def _initialize_clients():
         # Import real clients (lazy import to avoid dependency if not needed)
         from crepro_erp_adapter.adapter_service_client import AdapterServiceClient
         from crepro_erp_adapter.erp_client import ERPClient
+        from crepro_erp_adapter.postgres_dlq_repo import PostgresDLQRepo
         from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
 
         # Get credentials from environment/Key Vault
@@ -131,10 +131,9 @@ async def _initialize_clients():
         ledger_repo = PostgresLedgerRepo(database_url)
         await ledger_repo.initialize()
 
-        # DLQ replay needs a Dapr sidecar to reach the dlq-store state component. Container Apps
-        # Jobs do not run one, so production jobs run scans only and DLQ replay is skipped.
-        dlq_repo = None
-        logger.warning("DLQ replay is disabled in production jobs (no Dapr sidecar available)")
+        # DLQ events live in the platform database, so the job reads them without a Dapr sidecar.
+        dlq_repo = PostgresDLQRepo(database_url)
+        await dlq_repo.initialize()
 
         # Initialize adapter service client
         adapter_client = AdapterServiceClient(adapter_service_url)
@@ -179,15 +178,13 @@ async def run_reconciliation_job():
             )
             logger.info(f"Incremental scan report: {report}")
 
-            # Also run DLQ replay when a DLQ repo is available (not in Container Apps Jobs)
-            if dlq_repo is not None:
-                logger.info("Running DLQ replay...")
-                dlq_report = await replay_dlq_events(
-                    tenant_id=tenant_id,
-                    dlq_repo=dlq_repo,
-                    adapter_client=adapter_client,
-                )
-                logger.info(f"DLQ replay report: {dlq_report}")
+            logger.info("Running DLQ replay...")
+            dlq_report = await replay_dlq_events(
+                tenant_id=tenant_id,
+                dlq_repo=dlq_repo,
+                adapter_client=adapter_client,
+            )
+            logger.info(f"DLQ replay report: {dlq_report}")
 
         elif mode == "FULL":
             # Run full scan (nightly)
@@ -209,8 +206,9 @@ async def run_reconciliation_job():
         raise
     finally:
         # Cleanup
-        if hasattr(ledger_repo, "shutdown"):
-            await ledger_repo.shutdown()
+        for repo in (ledger_repo, dlq_repo):
+            if hasattr(repo, "shutdown"):
+                await repo.shutdown()
 
 
 def main():

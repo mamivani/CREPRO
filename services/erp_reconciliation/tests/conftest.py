@@ -65,7 +65,7 @@ class MockDLQEvent:
         original_payload=None,
         status="PENDING",
         routed_at=None,
-        dlq_replay_attempts=0,
+        retry_count=0,
     ):
         self.id = id or uuid4()
         self.tenant_id = tenant_id or uuid4()
@@ -75,7 +75,8 @@ class MockDLQEvent:
         self.original_payload = original_payload or {"name": "Test"}
         self.status = status
         self.routed_at = routed_at or datetime.utcnow()
-        self.dlq_replay_attempts = dlq_replay_attempts
+        self.retry_count = retry_count
+        self.last_retry_at = None
 
 
 class MockERPClient:
@@ -195,19 +196,18 @@ class MockDLQRepo:
         self.events.append(event)
         return event
 
-    def get_pending_events(self, tenant_id, routed_after, status):
+    async def get_pending_events(self, tenant_id, routed_after, status):
         return [
             e
             for e in self.events
             if e.tenant_id == tenant_id and e.status == status and e.routed_at >= routed_after
         ]
 
-    def update(self, event_id, **kwargs):
+    async def update(self, record_id, **kwargs):
         for event in self.events:
-            if event.id == event_id:
+            if event.id == record_id:
                 for key, value in kwargs.items():
-                    if hasattr(event, key):
-                        setattr(event, key, value)
+                    setattr(event, key, value)
                 return event
         return None
 
@@ -219,14 +219,13 @@ class MockAdapterClient:
         self.success = success
         self.post_calls = []
 
-    async def post_to_erp_with_retry(self, tenant_id, entity_id, external_doctype, payload, dlq_replay=False):
+    async def repost_entity(self, tenant_id, entity_id, external_doctype, payload):
         self.post_calls.append(
             {
                 "tenant_id": tenant_id,
                 "entity_id": entity_id,
                 "external_doctype": external_doctype,
                 "payload": payload,
-                "dlq_replay": dlq_replay,
             }
         )
         if self.success:

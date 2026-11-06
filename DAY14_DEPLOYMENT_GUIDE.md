@@ -30,11 +30,10 @@ Day 14 implements full pipeline deployment to Azure Container Apps with real cli
 - Tracks: status, attempts, last_error, erp_docid, timestamps
 - Indexes on tenant_id, platform_entity_id, status for performance
 
-**Dapr DLQ Repository** (`services/erp_adapter/src/crepro_erp_adapter/dapr_dlq_repo.py`)
-- State management via Dapr
-- Key format: `dlq:{tenant_id}:{event_id}`
-- Methods: `store_event()`, `get_pending_events()`, `update_event()`, `mark_recovered()`, `mark_manual_review()`
-- 24-hour retention window with retry tracking
+**Postgres DLQ Repository** (`services/erp_adapter/src/crepro_erp_adapter/postgres_dlq_repo.py`)
+- Stores DLQ events in the platform `dlq_events` table, so the reconciliation jobs (no Dapr sidecar) can replay them
+- Methods: `store_event()` (idempotent on `event_id`), `get_pending_events()`, `update()` (status, retry_count, last_retry_at)
+- Replay attempts are capped at 2 (`MAX_REPLAY_ATTEMPTS`), then the row moves to `MANUAL_REVIEW_REQUIRED`
 
 **Adapter Service Client** (`services/erp_adapter/src/crepro_erp_adapter/adapter_service_client.py`)
 - HTTP client for DLQ replay
@@ -92,14 +91,15 @@ export ERP_USERNAME="Administrator"
 export ERP_PASSWORD="$(az keyvault secret show --name erp-password --vault-name crepro-dev-kv --query value -o tsv)"
 export DATABASE_URL="$(az keyvault secret show --name database-url --vault-name crepro-dev-kv --query value -o tsv)"
 export ADAPTER_SERVICE_URL="http://erp-adapter.svc.cluster.local"
-export DAPR_STATE_STORE="dlq-store"
 ```
 
 ### 2.2 Dapr Configuration
 
 Container App Environment includes Dapr components:
 - `pubsub` (Azure Service Bus) - erp-events and dead_letter_events topics
-- `dlq-store` (Blob Storage) - State for DLQ events
+
+DLQ events are stored in the platform PostgreSQL `dlq_events` table (not Dapr state), so the
+reconciliation jobs, which have no Dapr sidecar, can read and replay them.
 
 Pub/sub scopes:
 - erp-adapter: subscribes to erp-events, publishes to dead_letter_events
@@ -120,8 +120,9 @@ Container App Environment, Service Bus namespace with the `erp-events` topic.
 Day 14 additions (`apps.tf`, `observability.tf`), gated by `deploy_services` (default `false`):
 - User-assigned identity with AcrPull on ACR and Key Vault Secrets User on the vault
 - Dapr components on the environment: `pubsub` (`pubsub.azure.servicebus.topics`, scoped to
-  `property` and `erp-adapter`) and `dlq-store` (`state.azure.blobstorage`, container `dlq-state`)
-- 11 service Container Apps (`ca-crepro-<service>`), Dapr app IDs, `/health` probes, secrets from Key Vault
+  `property` and `erp-adapter`)
+- 11 service Container Apps (`ca-crepro-<service>`), Dapr app IDs, `/health` probes, secrets from Key Vault.
+  `erp_adapter` is internal-only (its `/api/repost` is unauthenticated and writes to the ERP)
 - Two Container Apps Jobs running `crepro_erp_reconciliation`: INCREMENTAL every 15 min, FULL daily at 02:00 UTC
 - Application Insights (workspace-based) with its connection string in Key Vault, and a failed-requests
   alert when `alert_email` is set
@@ -164,7 +165,11 @@ python -m pytest tests/smoke -v
 ```
 
 Known gaps for this phase:
-- Container Apps Jobs do not run a Dapr sidecar, so the reconciliation DLQ replay (`DaprDLQRepo`) cannot reach `dlq-store` from the job. Production jobs run the incremental and full scans only; DLQ replay is skipped with a logged warning. Replay is restored only if the jobs gain a sidecar or the DLQ moves to a queryable store.
+- DLQ replay runs in the reconciliation jobs. The jobs have no Dapr sidecar, so DLQ events live in the
+  platform PostgreSQL `dlq_events` table, which the adapter writes and the jobs read via `DATABASE_URL`.
+  Replay re-posts through the adapter's `POST /api/repost`, with at most 2 attempts before `MANUAL_REVIEW_REQUIRED`.
+  The `dlq_events` schema change in `infrastructure/database/01-adapter-ledger-schema.sql` must be applied to the
+  private database before this works.
 - Event subscription uses one mechanism everywhere: the adapter's `GET /dapr/subscribe`. The declarative `dapr/components/subscriptions.yaml` was removed, so local compose and Azure register the same route once.
 
 
@@ -174,7 +179,7 @@ Defined in `infra/terraform/environments/dev/apps.tf` (`azurerm_container_app.se
 Each app has: a user-assigned identity, secrets referenced from Key Vault (`database-url`, `erp-password`,
 `appinsights-connection-string`), a Dapr sidecar (`app_id` = service name with dashes), `/health` liveness and
 readiness probes, and 0.25 vCPU / 0.5 GiB with 1–2 replicas. The `erp_adapter` app also gets `ERP_BASE_URL`,
-`ERP_USERNAME`, `ERP_PASSWORD` and `DAPR_STATE_STORE=dlq-store`.
+`ERP_USERNAME`, `ERP_PASSWORD` and `CREPRO_DATABASE_URL` (DLQ writes go to Postgres).
 
 `azurerm_container_app.erp_stub` runs `services/erp_stub` with internal ingress only (no external URL). When `erp_base_url` is empty, the adapter and reconciliation jobs use its internal FQDN, so dev has an ERP target without a real ERPNext instance. Set `erp_base_url` to point at a real ERP instead.
 

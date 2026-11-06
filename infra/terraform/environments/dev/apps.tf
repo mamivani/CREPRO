@@ -70,21 +70,6 @@ resource "azurerm_key_vault_secret" "servicebus_connection_string" {
   depends_on   = [azurerm_role_assignment.kv_secrets_officer_deployer]
 }
 
-resource "azurerm_storage_container" "dlq" {
-  count                 = local.deploy
-  name                  = "dlq-state"
-  storage_account_id    = azurerm_storage_account.dev.id
-  container_access_type = "private"
-}
-
-resource "azurerm_key_vault_secret" "storage_account_key" {
-  count        = local.deploy
-  name         = "storage-account-key"
-  value        = azurerm_storage_account.dev.primary_access_key
-  key_vault_id = azurerm_key_vault.dev.id
-  depends_on   = [azurerm_role_assignment.kv_secrets_officer_deployer]
-}
-
 resource "azurerm_key_vault_secret" "erp_password" {
   count        = local.deploy
   name         = "erp-password"
@@ -111,36 +96,6 @@ resource "azurerm_container_app_environment_dapr_component" "pubsub" {
   secret {
     name  = "servicebus-connection-string"
     value = azurerm_servicebus_namespace_authorization_rule.apps[0].primary_connection_string
-  }
-}
-
-# DLQ store used by erp_adapter's DaprDLQRepo (push.py via DAPR_STATE_STORE=dlq-store).
-resource "azurerm_container_app_environment_dapr_component" "dlq_store" {
-  count                        = local.deploy
-  name                         = "dlq-store"
-  container_app_environment_id = azurerm_container_app_environment.dev.id
-  component_type               = "state.azure.blobstorage"
-  version                      = "v1"
-  scopes                       = ["erp-adapter"]
-
-  metadata {
-    name  = "accountName"
-    value = azurerm_storage_account.dev.name
-  }
-
-  metadata {
-    name  = "containerName"
-    value = azurerm_storage_container.dlq[0].name
-  }
-
-  metadata {
-    name        = "accountKey"
-    secret_name = "storage-account-key"
-  }
-
-  secret {
-    name  = "storage-account-key"
-    value = azurerm_storage_account.dev.primary_access_key
   }
 }
 
@@ -193,7 +148,9 @@ resource "azurerm_container_app" "service" {
   }
 
   ingress {
-    external_enabled = var.services_external_ingress
+    # erp_adapter is internal-only: /api/repost is unauthenticated and writes to the ERP.
+    # Reconciliation jobs reach it through ADAPTER_SERVICE_URL inside the same environment.
+    external_enabled = each.key == "erp_adapter" ? false : var.services_external_ingress
     target_port      = each.value
     transport        = "http"
 
@@ -252,14 +209,6 @@ resource "azurerm_container_app" "service" {
         }
       }
 
-      dynamic "env" {
-        for_each = each.key == "erp_adapter" ? [1] : []
-        content {
-          name  = "DAPR_STATE_STORE"
-          value = "dlq-store"
-        }
-      }
-
       liveness_probe {
         transport = "HTTP"
         path      = "/health"
@@ -289,7 +238,6 @@ resource "azurerm_container_app" "service" {
     azurerm_role_assignment.apps_acr_pull,
     azurerm_role_assignment.apps_kv_secrets_user,
     azurerm_container_app_environment_dapr_component.pubsub,
-    azurerm_container_app_environment_dapr_component.dlq_store,
     azurerm_key_vault_secret.erp_password,
   ]
 }
@@ -362,8 +310,8 @@ resource "azurerm_container_app" "erp_stub" {
 }
 
 # --- Reconciliation jobs (ADR: Container Apps Jobs on cron, no HTTP ingress) ---
-# Jobs do not run a Dapr sidecar, so DaprDLQRepo cannot reach dlq-store from here;
-# DLQ replay is a known gap, see DAY14_DEPLOYMENT_GUIDE.md.
+# Jobs do not run a Dapr sidecar, so DLQ events are read from the platform database
+# (dlq_events table) via DATABASE_URL, not through Dapr state.
 
 locals {
   reconciliation_jobs = {

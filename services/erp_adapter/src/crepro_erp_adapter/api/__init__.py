@@ -9,10 +9,16 @@ is a separate scheduled worker, not an HTTP endpoint, and is out of scope for th
 """
 
 import logging
+from uuid import UUID
 
 from crepro_common import EventEnvelope, build_crud_router
+from crepro_erp_adapter.mappings import apply_entity_mapping
 from crepro_erp_adapter.models import AdapterLedgerEntry, TenantErpMapping
-from crepro_erp_adapter.push import create_subscriber_handler
+from crepro_erp_adapter.push import (
+    check_idempotency_internal,
+    create_subscriber_handler,
+    post_to_erp_internal,
+)
 from crepro_erp_adapter.repository import ledger_entries, tenant_mappings
 from crepro_erp_adapter.schemas import (
     AdapterLedgerEntryCreate,
@@ -20,7 +26,8 @@ from crepro_erp_adapter.schemas import (
     TenantErpMappingCreate,
     TenantErpMappingUpdate,
 )
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -73,3 +80,32 @@ async def subscribe_erp_events(event: EventEnvelope) -> dict:
     handler = create_subscriber_handler()
     result = await handler(event)
     return result
+
+
+class RepostRequest(BaseModel):
+    tenant_id: UUID
+    entity_id: UUID
+    external_doctype: str
+    payload: dict
+
+
+@router.post("/api/repost", tags=["reconciliation"])
+async def repost_entity(request: RepostRequest) -> dict:
+    """Repost a dead-lettered entity for the reconciliation DLQ replay.
+
+    Checks idempotency on the ERP first, so a replay of an entity that already
+    landed in the ERP returns its existing name instead of creating a duplicate.
+    """
+    already_posted, existing_name = await check_idempotency_internal(
+        request.entity_id, request.external_doctype
+    )
+    if already_posted:
+        return {"external_name": existing_name}
+
+    mapped_payload = apply_entity_mapping(request.external_doctype, request.payload)
+    success, external_name = await post_to_erp_internal(
+        request.entity_id, request.external_doctype, mapped_payload
+    )
+    if not success:
+        raise HTTPException(status_code=502, detail="ERP post failed")
+    return {"external_name": external_name}

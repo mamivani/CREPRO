@@ -1,7 +1,7 @@
 """Tests for push.py's lazy resolution of the real ERP/DLQ clients.
 
 Closes the Phase 1 gap where the Dapr push handler ignored the ERPClient and
-DaprDLQRepo built that phase entirely, and always talked to a hardcoded,
+DLQ repo built that phase entirely, and always talked to a hardcoded,
 nonexistent `http://localhost:8011` / orphaned pub/sub topic instead.
 """
 
@@ -43,20 +43,46 @@ def test_resolve_erp_client_builds_and_caches_client(monkeypatch) -> None:
     assert push._resolve_erp_client() is client  # cached, not rebuilt
 
 
-def test_resolve_dlq_repo_returns_none_without_state_store(monkeypatch) -> None:
-    monkeypatch.delenv("DAPR_STATE_STORE", raising=False)
+@pytest.mark.asyncio
+async def test_resolve_dlq_repo_returns_none_without_database_url(monkeypatch) -> None:
+    monkeypatch.delenv("CREPRO_DATABASE_URL", raising=False)
 
-    assert push._resolve_dlq_repo() is None
+    assert await push._resolve_dlq_repo() is None
 
 
-def test_resolve_dlq_repo_degrades_when_dapr_sdk_unavailable(monkeypatch) -> None:
-    """The `dapr` SDK isn't installed in this test environment, mirroring local
-    dev without Dapr: must log and return None, never raise."""
-    monkeypatch.setenv("DAPR_STATE_STORE", "dlq-store")
+@pytest.mark.asyncio
+async def test_resolve_dlq_repo_builds_and_caches_repo(monkeypatch) -> None:
+    from crepro_erp_adapter.postgres_dlq_repo import PostgresDLQRepo
 
-    assert push._resolve_dlq_repo() is None
+    monkeypatch.setenv("CREPRO_DATABASE_URL", "postgresql://user:pass@localhost/db")
+
+    async def fake_initialize(self):
+        pass
+
+    monkeypatch.setattr(PostgresDLQRepo, "initialize", fake_initialize)
+
+    repo = await push._resolve_dlq_repo()
+
+    assert isinstance(repo, PostgresDLQRepo)
+    # Resolution only happens once; a second call reuses the cached repo.
+    assert await push._resolve_dlq_repo() is repo
+
+
+@pytest.mark.asyncio
+async def test_resolve_dlq_repo_degrades_when_pool_init_fails(monkeypatch) -> None:
+    """An unreachable database must be logged and return None, never raise."""
+    from crepro_erp_adapter.postgres_dlq_repo import PostgresDLQRepo
+
+    monkeypatch.setenv("CREPRO_DATABASE_URL", "postgresql://user:pass@localhost/db")
+
+    async def boom(self):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(PostgresDLQRepo, "initialize", boom)
+
+    assert await push._resolve_dlq_repo() is None
     # Resolution only happens once; a second call reuses the cached None.
-    assert push._resolve_dlq_repo() is None
+    assert await push._resolve_dlq_repo() is None
 
 
 @pytest.mark.asyncio
@@ -131,8 +157,8 @@ async def test_post_to_erp_internal_fails_cleanly_on_erp_error(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_route_to_dlq_is_a_safe_no_op_without_state_store(monkeypatch) -> None:
-    monkeypatch.delenv("DAPR_STATE_STORE", raising=False)
+async def test_route_to_dlq_is_a_safe_no_op_without_database_url(monkeypatch) -> None:
+    monkeypatch.delenv("CREPRO_DATABASE_URL", raising=False)
 
     # Must not raise even though nothing is configured to persist the DLQ event
     # (the failure is already recorded in the ledger by the caller).

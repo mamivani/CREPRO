@@ -39,13 +39,17 @@ CREATE TABLE IF NOT EXISTS dlq_events (
     external_doctype VARCHAR(50) NOT NULL,
     reason TEXT NOT NULL,  -- Why event was DLQ'd
     payload JSONB NOT NULL,  -- Original event payload
-    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',  -- PENDING, RECOVERED, MANUAL_REVIEW_REQUIRED
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',  -- PENDING, RECOVERED, MANUAL_REVIEW_REQUIRED
     retry_count INT DEFAULT 0,
     routed_at TIMESTAMP NOT NULL,
     last_retry_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Widen status for databases created before MANUAL_REVIEW_REQUIRED (23 chars) fit VARCHAR(20).
+-- Widening a varchar is a no-op when the column is already at least this wide.
+ALTER TABLE dlq_events ALTER COLUMN status TYPE VARCHAR(32);
 
 -- Indexes for DLQ queries
 CREATE INDEX idx_dlq_tenant_id ON dlq_events(tenant_id);
