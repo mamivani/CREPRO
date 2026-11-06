@@ -208,7 +208,7 @@ resource "azurerm_container_app" "service" {
     max_replicas = 2
 
     container {
-      name   = each.key
+      name   = replace(each.key, "_", "-")
       image  = "${azurerm_container_registry.dev.login_server}/crepro-${replace(each.key, "_", "-")}:${var.image_tag}"
       cpu    = 0.25
       memory = "0.5Gi"
