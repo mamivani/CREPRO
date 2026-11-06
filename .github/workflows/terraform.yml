@@ -60,6 +60,11 @@ jobs:
 
       - name: Terraform plan
         if: steps.azure-auth.outputs.configured == 'true'
+        env:
+          TF_VAR_deploy_services: "true"
+          TF_VAR_dev_tenant_id: ${{ secrets.TF_VAR_DEV_TENANT_ID }}
+          TF_VAR_postgres_admin_password: ${{ secrets.TF_VAR_POSTGRES_ADMIN_PASSWORD }}
+          TF_VAR_erp_password: ${{ secrets.TF_VAR_ERP_PASSWORD }}
         run: terraform plan -input=false -no-color
 
   # Vol 4 S16's pipeline is Plan -> Approval Gate -> Apply. Required-reviewer
@@ -88,4 +93,9 @@ jobs:
         run: terraform init -backend-config=backend.hcl
 
       - name: Terraform apply
+        env:
+          TF_VAR_deploy_services: "true"
+          TF_VAR_dev_tenant_id: ${{ secrets.TF_VAR_DEV_TENANT_ID }}
+          TF_VAR_postgres_admin_password: ${{ secrets.TF_VAR_POSTGRES_ADMIN_PASSWORD }}
+          TF_VAR_erp_password: ${{ secrets.TF_VAR_ERP_PASSWORD }}
         run: terraform apply -input=false -auto-approve
