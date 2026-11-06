@@ -86,6 +86,30 @@ async def test_full_scan_detects_deleted_in_erp(tenant_id, erp_client, ledger_re
 
 
 @pytest.mark.asyncio
+async def test_full_scan_does_not_delete_failed_entries_missing_from_erp(tenant_id, erp_client, ledger_repo):
+    """A FAILED entry never reached ERP, so a missing ERP record must not mark it DELETED."""
+    entity_id = uuid4()
+    await ledger_repo.create(
+        tenant_id=tenant_id,
+        entity_id=entity_id,
+        status="FAILED",
+        erp_docid=None,
+        external_doctype="Customer",
+    )
+
+    report = await run_full_scan(
+        tenant_id=tenant_id,
+        erp_client=erp_client,
+        ledger_repo=ledger_repo,
+    )
+
+    assert report.discrepancies_found == 0
+    assert report.items_fixed == 0
+    assert (await ledger_repo.get_all(tenant_id, ["FAILED"]))[0].status == "FAILED"
+    assert await ledger_repo.get_all(tenant_id, ["DELETED"]) == []
+
+
+@pytest.mark.asyncio
 async def test_full_scan_detects_deleted_but_exists(tenant_id, erp_client, ledger_repo):
     """Full scan detects when ledger says DELETED but ERP record still exists."""
     # Setup: Create ledger entry marked DELETED, but ERP record still exists
