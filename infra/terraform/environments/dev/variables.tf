@@ -16,6 +16,12 @@ variable "postgres_admin_login" {
   default     = "creproadmin"
 }
 
+variable "postgres_admin_password" {
+  description = "PostgreSQL Flexible Server administrator password. Pass via TF_VAR_postgres_admin_password; stored in Key Vault as postgres-admin-password and inside postgres-database-url."
+  type        = string
+  sensitive   = true
+}
+
 variable "deploy_services" {
   description = "Deploy the service Container Apps, reconciliation jobs and Dapr components. Images must already exist in ACR (see DAY14_DEPLOYMENT_GUIDE.md)."
   type        = bool
