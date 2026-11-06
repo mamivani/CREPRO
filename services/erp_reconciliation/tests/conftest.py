@@ -48,6 +48,7 @@ class MockLedgerEntry:
         self.erp_docid = erp_docid
         self.external_doctype = external_doctype
         self.attempts = attempts
+        self.last_error = None
         self.created_at = created_at or datetime.utcnow()
         self.updated_at = updated_at or datetime.utcnow()
 
@@ -202,6 +203,10 @@ class MockDLQRepo:
             for e in self.events
             if e.tenant_id == tenant_id and e.status == status and e.routed_at >= routed_after
         ]
+
+    async def get_latest_for_entity(self, tenant_id, entity_id):
+        matches = [e for e in self.events if e.tenant_id == tenant_id and e.entity_id == entity_id]
+        return max(matches, key=lambda e: e.routed_at, default=None)
 
     async def update(self, record_id, **kwargs):
         for event in self.events:

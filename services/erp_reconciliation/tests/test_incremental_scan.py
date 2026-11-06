@@ -138,9 +138,8 @@ async def test_incremental_scan_handles_empty_result(tenant_id, erp_client, ledg
 async def test_incremental_scan_reposts_failed_entry_and_records_discrepancy(
     tenant_id, erp_client, ledger_repo
 ):
-    """Incremental scan attempts to re-post FAILED entries. `_attempt_repost` isn't
-    fully implemented yet (always returns False, see its docstring), so this
-    currently always records a REPOST_FAILED discrepancy for manual review."""
+    """Without an adapter client, a FAILED entry can't be re-posted, so it is reported
+    as REPOST_FAILED for manual review."""
     entity_id = uuid4()
     erp_client.add_record("Customer", "CUST-001", platform_id=str(entity_id))
     await ledger_repo.create(
@@ -184,22 +183,126 @@ async def test_incremental_scan_reraises_erp_client_errors(tenant_id, ledger_rep
 
 
 @pytest.mark.asyncio
-async def test_attempt_repost_returns_false_on_unexpected_error(monkeypatch, tenant_id):
-    """`_attempt_repost`'s except branch is defensive: even if logging itself
-    somehow raised, repost must still resolve to False, not propagate."""
-    from crepro_erp_reconciliation import incremental_scan as module
+async def test_incremental_scan_reposts_failed_entry_from_dlq_payload(
+    tenant_id, erp_client, ledger_repo, dlq_repo, adapter_client
+):
+    entity_id = uuid4()
+    payload = {"name": "Acme", "platform_id": str(entity_id)}
+    await ledger_repo.create(
+        tenant_id=tenant_id, entity_id=entity_id, status="FAILED", erp_docid=None, external_doctype="Customer"
+    )
+    dlq_event = dlq_repo.add_event(tenant_id=tenant_id, entity_id=entity_id, original_payload=payload)
 
-    def boom_warning(*args, **kwargs):
-        raise RuntimeError("logging backend down")
-
-    monkeypatch.setattr(module.logger, "warning", boom_warning)
-
-    result = await module._attempt_repost(
+    report = await run_incremental_scan(
         tenant_id=tenant_id,
-        entity_id=uuid4(),
-        erp_client=None,
-        ledger_repo=None,
-        ledger_entry=None,
+        erp_client=erp_client,
+        ledger_repo=ledger_repo,
+        dlq_repo=dlq_repo,
+        adapter_client=adapter_client,
     )
 
-    assert result is False
+    assert adapter_client.post_calls[0]["payload"] == payload
+    assert report.items_fixed == 1
+    assert report.discrepancies_found == 0
+    assert ledger_repo.entries[0].status == "POSTED"
+    assert ledger_repo.entries[0].erp_docid == "Customer-001"
+    assert dlq_event.status == "RECOVERED"
+
+
+@pytest.mark.asyncio
+async def test_incremental_scan_records_repost_rejection_and_increments_attempts(
+    tenant_id, erp_client, ledger_repo, dlq_repo
+):
+    entity_id = uuid4()
+    await ledger_repo.create(
+        tenant_id=tenant_id, entity_id=entity_id, status="FAILED", erp_docid=None, external_doctype="Customer"
+    )
+    dlq_repo.add_event(tenant_id=tenant_id, entity_id=entity_id)
+
+    class RejectingAdapterClient:
+        async def repost_entity(self, tenant_id, entity_id, external_doctype, payload):
+            return False, None
+
+    report = await run_incremental_scan(
+        tenant_id=tenant_id,
+        erp_client=erp_client,
+        ledger_repo=ledger_repo,
+        dlq_repo=dlq_repo,
+        adapter_client=RejectingAdapterClient(),
+    )
+
+    entry = ledger_repo.entries[0]
+    assert entry.status == "FAILED"
+    assert entry.attempts == 1
+    assert entry.last_error == "Re-post rejected by adapter"
+    assert report.manual_review_required == 1
+    assert report.discrepancies[0].discrepancy_type == DiscrepancyType.REPOST_FAILED
+
+
+@pytest.mark.asyncio
+async def test_incremental_scan_stops_reposting_after_max_attempts(
+    tenant_id, erp_client, ledger_repo, dlq_repo, adapter_client
+):
+    entity_id = uuid4()
+    entry = await ledger_repo.create(
+        tenant_id=tenant_id, entity_id=entity_id, status="FAILED", erp_docid=None, external_doctype="Customer"
+    )
+    entry.attempts = 2
+    dlq_repo.add_event(tenant_id=tenant_id, entity_id=entity_id)
+
+    report = await run_incremental_scan(
+        tenant_id=tenant_id,
+        erp_client=erp_client,
+        ledger_repo=ledger_repo,
+        dlq_repo=dlq_repo,
+        adapter_client=adapter_client,
+    )
+
+    assert adapter_client.post_calls == []
+    assert report.manual_review_required == 1
+
+
+@pytest.mark.asyncio
+async def test_incremental_scan_reports_failed_entry_without_dlq_payload(
+    tenant_id, erp_client, ledger_repo, dlq_repo, adapter_client
+):
+    await ledger_repo.create(
+        tenant_id=tenant_id, entity_id=uuid4(), status="FAILED", erp_docid=None, external_doctype="Customer"
+    )
+
+    report = await run_incremental_scan(
+        tenant_id=tenant_id,
+        erp_client=erp_client,
+        ledger_repo=ledger_repo,
+        dlq_repo=dlq_repo,
+        adapter_client=adapter_client,
+    )
+
+    assert adapter_client.post_calls == []
+    assert report.discrepancies[0].discrepancy_type == DiscrepancyType.REPOST_FAILED
+
+
+@pytest.mark.asyncio
+async def test_incremental_scan_reports_failed_entry_when_adapter_raises(
+    tenant_id, erp_client, ledger_repo, dlq_repo
+):
+    class BoomAdapterClient:
+        async def repost_entity(self, tenant_id, entity_id, external_doctype, payload):
+            raise RuntimeError("adapter down")
+
+    entity_id = uuid4()
+    await ledger_repo.create(
+        tenant_id=tenant_id, entity_id=entity_id, status="FAILED", erp_docid=None, external_doctype="Customer"
+    )
+    dlq_repo.add_event(tenant_id=tenant_id, entity_id=entity_id)
+
+    report = await run_incremental_scan(
+        tenant_id=tenant_id,
+        erp_client=erp_client,
+        ledger_repo=ledger_repo,
+        dlq_repo=dlq_repo,
+        adapter_client=BoomAdapterClient(),
+    )
+
+    assert report.items_fixed == 0
+    assert report.discrepancies[0].discrepancy_type == DiscrepancyType.REPOST_FAILED

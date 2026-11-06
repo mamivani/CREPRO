@@ -181,6 +181,45 @@ async def test_get_modified_since_raises_on_non_http_error() -> None:
             await _client().get_modified_since("Customer", "2026-01-01T00:00:00")
 
 
+def _paged_handler(total: int):
+    """Fake Frappe list endpoint that honours limit_start and limit_page_length."""
+    rows = [{"name": f"CUST-{i:04d}"} for i in range(total)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        start = int(request.url.params.get("limit_start", 0))
+        size = int(request.url.params.get("limit_page_length", 20))
+        return httpx.Response(200, json={"data": rows[start : start + size]})
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_get_all_pages_past_the_page_size() -> None:
+    with respx.mock:
+        respx.get(f"{BASE_URL}/api/resource/Customer").mock(side_effect=_paged_handler(1234))
+        records = await _client().get_all("Customer", limit=500)
+
+    assert len(records) == 1234
+    assert records[0] == {"name": "CUST-0000"}
+    assert records[-1] == {"name": "CUST-1233"}
+
+
+@pytest.mark.asyncio
+async def test_get_modified_since_pages_past_the_page_size() -> None:
+    with respx.mock:
+        respx.get(f"{BASE_URL}/api/resource/Customer").mock(side_effect=_paged_handler(500))
+        records = await _client().get_modified_since("Customer", "2026-01-01T00:00:00", limit=500)
+
+    assert len(records) == 500
+
+
+@pytest.mark.asyncio
+async def test_get_all_returns_empty_list_when_no_records() -> None:
+    with respx.mock:
+        respx.get(f"{BASE_URL}/api/resource/Customer").mock(side_effect=_paged_handler(0))
+        assert await _client().get_all("Customer") == []
+
+
 @pytest.mark.asyncio
 async def test_delete_succeeds() -> None:
     with respx.mock:

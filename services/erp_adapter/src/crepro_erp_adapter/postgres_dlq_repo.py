@@ -124,6 +124,22 @@ class PostgresDLQRepo:
         )
         return [DLQEventRecord.from_row(row) for row in rows]
 
+    async def get_latest_for_entity(self, tenant_id: UUID, entity_id: UUID) -> DLQEventRecord | None:
+        """Return the most recently routed DLQ event for an entity, if any."""
+        row = await self.pool.fetchrow(
+            """
+            SELECT id, tenant_id, event_id, platform_entity_id, external_doctype,
+                   reason, payload, status, retry_count, routed_at, last_retry_at
+            FROM dlq_events
+            WHERE tenant_id = $1 AND platform_entity_id = $2
+            ORDER BY routed_at DESC
+            LIMIT 1
+            """,
+            tenant_id,
+            entity_id,
+        )
+        return DLQEventRecord.from_row(row) if row else None
+
     async def update(self, record_id: UUID, **updates: Any) -> None:
         """Update whitelisted columns on one DLQ row."""
         unknown = set(updates) - _UPDATABLE_COLUMNS
