@@ -185,7 +185,7 @@ class ERPClient:
                 url = f"{self.base_url}/api/resource/{doctype}"
                 response = await client.get(
                     url,
-                    params={"limit_page_length": limit},
+                    params={"limit_page_length": limit, "fields": '["*"]'},
                     headers=self._get_headers(),
                 )
                 response.raise_for_status()
@@ -229,6 +229,7 @@ class ERPClient:
                     url,
                     params={
                         "filters": filters,
+                        "fields": '["*"]',
                         "limit_page_length": limit,
                         "order_by": "modified asc",
                     },
@@ -243,6 +244,32 @@ class ERPClient:
             raise
         except Exception as exc:
             logger.error(f"Error fetching modified {doctype}: {exc}")
+            raise
+
+    async def get_by_name(self, doctype: str, docid: str) -> dict[str, Any] | None:
+        """
+        Get a single record by its ERP name.
+
+        Returns:
+            Record dict, or None if ERP has no record with that name (404).
+
+        Raises:
+            httpx.HTTPError: On HTTP errors other than 404
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                url = f"{self.base_url}/api/resource/{doctype}/{docid}"
+                response = await client.get(url, headers=self._get_headers())
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                return response.json().get("data")
+
+        except httpx.HTTPError as exc:
+            logger.error(f"HTTP error fetching {doctype} {docid}: {exc}")
+            raise
+        except Exception as exc:
+            logger.error(f"Error fetching {doctype} {docid}: {exc}")
             raise
 
     async def delete(self, doctype: str, docid: str) -> None:

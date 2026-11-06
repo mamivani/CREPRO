@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from uuid import UUID
 
+from .erp_gateway import platform_uuid
 from .models import DiscrepancyType, ReconciliationDiscrepancy, ScanReport
 
 logger = logging.getLogger(__name__)
@@ -46,9 +47,11 @@ async def run_full_scan(
 
         # Step 1: Check all ERP records have ledger entries
         for erp_record in all_erp_records:
-            ledger_entry = ledger_repo.get_by_platform_id(
-                tenant_id=tenant_id,
-                platform_id=erp_record.get("platform_id"),
+            platform_id = platform_uuid(erp_record)
+            ledger_entry = (
+                await ledger_repo.get_by_platform_id(tenant_id=tenant_id, platform_id=platform_id)
+                if platform_id
+                else None
             )
 
             if ledger_entry is None:
@@ -64,11 +67,11 @@ async def run_full_scan(
                 discrepancies.append(discrepancy)
 
                 # Try to reconstruct ledger entry from ERP data
-                if _can_infer_source(erp_record):
+                if platform_id is not None:
                     try:
-                        ledger_repo.create(
+                        await ledger_repo.create(
                             tenant_id=tenant_id,
-                            entity_id=erp_record.get("platform_id"),
+                            entity_id=platform_id,
                             status="RECONCILED",
                             erp_docid=erp_record.get("name"),
                             external_doctype=erp_record.get("doctype"),
@@ -103,7 +106,7 @@ async def run_full_scan(
                     manual_review_required += 1
 
         # Step 2: Check all ledger entries have corresponding ERP records
-        all_ledger_entries = ledger_repo.get_all(
+        all_ledger_entries = await ledger_repo.get_all(
             tenant_id=tenant_id,
             statuses=["POSTED", "FAILED"],
         )
@@ -130,7 +133,7 @@ async def run_full_scan(
                 manual_review_required += 1
 
                 # Mark as deleted in ledger
-                ledger_repo.update(
+                await ledger_repo.update(
                     ledger_entry.id,
                     status="DELETED",
                     updated_at=datetime.utcnow(),
@@ -138,7 +141,7 @@ async def run_full_scan(
                 items_fixed += 1
 
         # Record scan completion for this tenant
-        ledger_repo.update_last_full_scan(tenant_id, datetime.utcnow())
+        await ledger_repo.update_last_full_scan(tenant_id, datetime.utcnow())
 
     except Exception as e:
         logger.error(f"Error during full scan for tenant {tenant_id}: {e}", exc_info=True)

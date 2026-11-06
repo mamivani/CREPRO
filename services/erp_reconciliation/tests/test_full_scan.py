@@ -13,7 +13,7 @@ async def test_full_scan_finds_no_discrepancies_when_consistent(tenant_id, erp_c
     # Setup: Create matching records
     entity_id = uuid4()
     erp_client.add_record("Customer", "CUST-001", platform_id=str(entity_id))
-    ledger_repo.create(
+    await ledger_repo.create(
         tenant_id=tenant_id,
         entity_id=entity_id,
         status="POSTED",
@@ -59,7 +59,7 @@ async def test_full_scan_detects_deleted_in_erp(tenant_id, erp_client, ledger_re
     """Full scan detects ledger entries where ERP record was deleted."""
     # Setup: Create ledger entry but no ERP record
     entity_id = uuid4()
-    ledger_repo.create(
+    await ledger_repo.create(
         tenant_id=tenant_id,
         entity_id=entity_id,
         status="POSTED",
@@ -80,7 +80,7 @@ async def test_full_scan_detects_deleted_in_erp(tenant_id, erp_client, ledger_re
     assert report.discrepancies[0].discrepancy_type == DiscrepancyType.DELETED_IN_ERP
 
     # Verify ledger was updated
-    entries = ledger_repo.get_all(tenant_id, ["DELETED"])
+    entries = await ledger_repo.get_all(tenant_id, ["DELETED"])
     assert len(entries) == 1
     assert entries[0].status == "DELETED"
 
@@ -96,7 +96,7 @@ async def test_full_scan_detects_deleted_but_exists(tenant_id, erp_client, ledge
         platform_id=str(entity_id),
         docstatus="Submitted",
     )
-    ledger_repo.create(
+    await ledger_repo.create(
         tenant_id=tenant_id,
         entity_id=entity_id,
         status="DELETED",
@@ -128,7 +128,7 @@ async def test_full_scan_updates_last_scan_time(tenant_id, erp_client, ledger_re
     )
 
     # Assert
-    last_scan_time = ledger_repo.get_last_full_scan(tenant_id)
+    last_scan_time = await ledger_repo.get_last_full_scan(tenant_id)
     assert last_scan_time is not None
     assert last_scan_time >= report.started_at
     assert last_scan_time <= report.completed_at
@@ -143,7 +143,7 @@ async def test_full_scan_handles_multiple_discrepancies(tenant_id, erp_client, l
 
     # 2. Deleted in ERP (ledger exists but ERP doesn't)
     entity_id_2 = uuid4()
-    ledger_repo.create(
+    await ledger_repo.create(
         tenant_id=tenant_id,
         entity_id=entity_id_2,
         status="POSTED",
@@ -154,7 +154,7 @@ async def test_full_scan_handles_multiple_discrepancies(tenant_id, erp_client, l
     # 3. Consistent record
     entity_id_3 = uuid4()
     erp_client.add_record("Customer", "CUST-003", platform_id=str(entity_id_3))
-    ledger_repo.create(
+    await ledger_repo.create(
         tenant_id=tenant_id,
         entity_id=entity_id_3,
         status="POSTED",

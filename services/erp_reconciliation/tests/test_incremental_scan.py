@@ -16,7 +16,7 @@ async def test_incremental_scan_finds_no_discrepancies_when_all_consistent(
     # Setup: Create matching records in ERP and ledger
     entity_id = uuid4()
     erp_client.add_record("Customer", "CUST-001", platform_id=str(entity_id))
-    ledger_repo.create(
+    await ledger_repo.create(
         tenant_id=tenant_id,
         entity_id=entity_id,
         status="POSTED",
@@ -75,7 +75,7 @@ async def test_incremental_scan_detects_external_modifications(tenant_id, erp_cl
         platform_id=str(entity_id),
         modified_at=erp_modified,
     )
-    ledger_repo.create(
+    await ledger_repo.create(
         tenant_id=tenant_id,
         entity_id=entity_id,
         status="POSTED",
@@ -111,7 +111,7 @@ async def test_incremental_scan_updates_last_scan_time(tenant_id, erp_client, le
     )
 
     # Assert
-    last_scan_time = ledger_repo.get_last_incremental_scan(tenant_id)
+    last_scan_time = await ledger_repo.get_last_incremental_scan(tenant_id)
     assert last_scan_time is not None
     assert last_scan_time >= report.started_at
     assert last_scan_time <= report.completed_at
@@ -143,7 +143,7 @@ async def test_incremental_scan_reposts_failed_entry_and_records_discrepancy(
     currently always records a REPOST_FAILED discrepancy for manual review."""
     entity_id = uuid4()
     erp_client.add_record("Customer", "CUST-001", platform_id=str(entity_id))
-    ledger_repo.create(
+    await ledger_repo.create(
         tenant_id=tenant_id,
         entity_id=entity_id,
         status="FAILED",

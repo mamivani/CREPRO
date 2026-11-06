@@ -49,6 +49,7 @@ async def test_initialize_clients_builds_real_clients_when_fully_configured(monk
     from crepro_erp_adapter.erp_client import ERPClient
     from crepro_erp_adapter.postgres_dlq_repo import PostgresDLQRepo
     from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
+    from crepro_erp_reconciliation.erp_gateway import ERPReadGateway
 
     monkeypatch.setenv("ERP_BASE_URL", "https://erp.example.com")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@host/db")
@@ -62,8 +63,9 @@ async def test_initialize_clients_builds_real_clients_when_fully_configured(monk
 
     erp_client, ledger_repo, dlq_repo, adapter_client = await _initialize_clients()
 
-    assert isinstance(erp_client, ERPClient)
-    assert erp_client.base_url == "https://erp.example.com"
+    assert isinstance(erp_client, ERPReadGateway)
+    assert isinstance(erp_client._erp, ERPClient)
+    assert erp_client._erp.base_url == "https://erp.example.com"
     assert isinstance(ledger_repo, PostgresLedgerRepo)
     assert isinstance(adapter_client, AdapterServiceClient)
     assert isinstance(dlq_repo, PostgresDLQRepo)
@@ -201,9 +203,9 @@ async def test_mock_clients_implement_expected_interface() -> None:
     assert await erp_client.get_record(tenant_id, "Customer", "CUST-1") is None
 
     ledger_repo = MockLedgerRepo()
-    assert ledger_repo.get_by_platform_id(tenant_id, entity_id) is None
+    assert await ledger_repo.get_by_platform_id(tenant_id, entity_id) is None
     assert (
-        ledger_repo.create(
+        await ledger_repo.create(
             tenant_id=tenant_id,
             entity_id=entity_id,
             status="POSTED",
@@ -212,7 +214,7 @@ async def test_mock_clients_implement_expected_interface() -> None:
         )
         is None
     )
-    assert ledger_repo.update(uuid4()) is None
+    assert await ledger_repo.update(uuid4()) is None
 
     dlq_repo = MockDLQRepo()
     assert await dlq_repo.update(uuid4()) is None

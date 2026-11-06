@@ -115,7 +115,7 @@ class MockLedgerRepo:
         self.last_incremental_scan = {}
         self.last_full_scan = {}
 
-    def get_by_platform_id(self, tenant_id, platform_id):
+    async def get_by_platform_id(self, tenant_id, platform_id):
         # Normalize to UUID for comparison
         if isinstance(platform_id, str):
             try:
@@ -135,7 +135,7 @@ class MockLedgerRepo:
                 return entry
         return None
 
-    def create(
+    async def create(
         self,
         tenant_id,
         entity_id,
@@ -160,22 +160,22 @@ class MockLedgerRepo:
         self.entries.append(entry)
         return entry
 
-    def get_last_incremental_scan(self, tenant_id):
+    async def get_last_incremental_scan(self, tenant_id):
         return self.last_incremental_scan.get(tenant_id)
 
-    def update_last_incremental_scan(self, tenant_id, timestamp):
+    async def update_last_incremental_scan(self, tenant_id, timestamp):
         self.last_incremental_scan[tenant_id] = timestamp
 
-    def get_last_full_scan(self, tenant_id):
+    async def get_last_full_scan(self, tenant_id):
         return self.last_full_scan.get(tenant_id)
 
-    def update_last_full_scan(self, tenant_id, timestamp):
+    async def update_last_full_scan(self, tenant_id, timestamp):
         self.last_full_scan[tenant_id] = timestamp
 
-    def get_all(self, tenant_id, statuses):
+    async def get_all(self, tenant_id, statuses):
         return [e for e in self.entries if e.tenant_id == tenant_id and e.status in statuses]
 
-    def update(self, entry_id, **kwargs):
+    async def update(self, entry_id, **kwargs):
         for entry in self.entries:
             if entry.id == entry_id:
                 for key, value in kwargs.items():

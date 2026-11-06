@@ -1,12 +1,18 @@
 """Incremental reconciliation scan (runs every 15 minutes)."""
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
+from .erp_gateway import platform_uuid
 from .models import DiscrepancyType, ReconciliationDiscrepancy, ScanReport
 
 logger = logging.getLogger(__name__)
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Treat naive datetimes as UTC so ERP (naive) and ledger (aware) values compare safely."""
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 async def run_incremental_scan(
@@ -38,7 +44,7 @@ async def run_incremental_scan(
 
     try:
         # Get last scan time for this tenant
-        last_scan_time = ledger_repo.get_last_incremental_scan(tenant_id)
+        last_scan_time = await ledger_repo.get_last_incremental_scan(tenant_id)
 
         # Query ERP for records modified since last_scan_time
         erp_records = await erp_client.query_modified_records(
@@ -51,10 +57,12 @@ async def run_incremental_scan(
         logger.info(f"Incremental scan found {total_records_scanned} modified records for tenant {tenant_id}")
 
         for erp_record in erp_records:
-            # Check if we have a ledger entry for this record
-            ledger_entry = ledger_repo.get_by_platform_id(
-                tenant_id=tenant_id,
-                platform_id=erp_record.get("platform_id"),
+            platform_id = platform_uuid(erp_record)
+            # Records without a platform_id were not created by CREPRO, so there is no ledger row to find
+            ledger_entry = (
+                await ledger_repo.get_by_platform_id(tenant_id=tenant_id, platform_id=platform_id)
+                if platform_id
+                else None
             )
 
             if ledger_entry is None:
@@ -70,10 +78,18 @@ async def run_incremental_scan(
                 discrepancies.append(discrepancy)
                 manual_review_required += 1
 
+                if platform_id is None:
+                    # Nothing to key a ledger row on; a human has to decide what this record is
+                    logger.warning(
+                        f"ERP record {erp_record.get('name')} has no platform_id in tenant {tenant_id}; "
+                        "requires manual intervention"
+                    )
+                    continue
+
                 # Create ledger entry for this orphaned record
-                ledger_repo.create(
+                await ledger_repo.create(
                     tenant_id=tenant_id,
-                    entity_id=erp_record.get("platform_id"),
+                    entity_id=platform_id,
                     status="RECONCILED",
                     erp_docid=erp_record.get("name"),
                     external_doctype=erp_record.get("doctype"),
@@ -113,7 +129,7 @@ async def run_incremental_scan(
             elif ledger_entry.status == "POSTED":
                 # Verify record still matches expected state
                 if erp_record.get("modified_at") and ledger_entry.updated_at:
-                    if erp_record.get("modified_at") > ledger_entry.updated_at:
+                    if _as_utc(erp_record["modified_at"]) > _as_utc(ledger_entry.updated_at):
                         # ERP record was modified after we posted it
                         discrepancy = ReconciliationDiscrepancy(
                             id=UUID(int=0),
@@ -128,7 +144,7 @@ async def run_incremental_scan(
                         manual_review_required += 1
 
         # Record scan completion for this tenant
-        ledger_repo.update_last_incremental_scan(tenant_id, datetime.utcnow())
+        await ledger_repo.update_last_incremental_scan(tenant_id, datetime.utcnow())
 
     except Exception as e:
         logger.error(f"Error during incremental scan for tenant {tenant_id}: {e}", exc_info=True)

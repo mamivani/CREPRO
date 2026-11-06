@@ -44,31 +44,31 @@ class MockERPClient:
 class MockLedgerRepo:
     """Mock ledger repository for development/testing."""
 
-    def get_last_incremental_scan(self, tenant_id):
+    async def get_last_incremental_scan(self, tenant_id):
         """Get last incremental scan time."""
         return None
 
-    def update_last_incremental_scan(self, tenant_id, timestamp):
+    async def update_last_incremental_scan(self, tenant_id, timestamp):
         """Update last incremental scan time."""
         pass
 
-    def update_last_full_scan(self, tenant_id, timestamp):
+    async def update_last_full_scan(self, tenant_id, timestamp):
         """Update last full scan time."""
         pass
 
-    def get_by_platform_id(self, tenant_id, platform_id):
+    async def get_by_platform_id(self, tenant_id, platform_id):
         """Get ledger entry by platform ID."""
         return None
 
-    def create(self, **kwargs):
+    async def create(self, **kwargs):
         """Create a ledger entry."""
         pass
 
-    def get_all(self, tenant_id, statuses):
+    async def get_all(self, tenant_id, statuses):
         """Get all ledger entries for a tenant with given statuses."""
         return []
 
-    def update(self, entry_id, **kwargs):
+    async def update(self, entry_id, **kwargs):
         """Update a ledger entry."""
         pass
 
@@ -116,15 +116,19 @@ async def _initialize_clients():
         from crepro_erp_adapter.postgres_dlq_repo import PostgresDLQRepo
         from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
 
+        from .erp_gateway import ERPReadGateway
+
         # Get credentials from environment/Key Vault
         erp_username = os.getenv("ERP_USERNAME", "Administrator")
         erp_password = os.getenv("ERP_PASSWORD", "")  # Should come from Key Vault
 
         # Initialize real ERP client
-        erp_client = ERPClient(
-            base_url=erp_base_url,
-            username=erp_username,
-            password=erp_password,
+        erp_client = ERPReadGateway(
+            ERPClient(
+                base_url=erp_base_url,
+                username=erp_username,
+                password=erp_password,
+            )
         )
 
         # Initialize real ledger repository
