@@ -108,6 +108,7 @@ resource "azurerm_container_app" "service" {
   resource_group_name          = azurerm_resource_group.dev.name
   container_app_environment_id = azurerm_container_app_environment.dev.id
   revision_mode                = "Single"
+  workload_profile_name        = "Consumption"
   tags                         = local.tags
 
   identity {
@@ -252,6 +253,7 @@ resource "azurerm_container_app" "erp_stub" {
   resource_group_name          = azurerm_resource_group.dev.name
   container_app_environment_id = azurerm_container_app_environment.dev.id
   revision_mode                = "Single"
+  workload_profile_name        = "Consumption"
   tags                         = local.tags
 
   identity {
@@ -327,6 +329,7 @@ resource "azurerm_container_app_job" "reconciliation" {
   resource_group_name          = azurerm_resource_group.dev.name
   location                     = azurerm_resource_group.dev.location
   container_app_environment_id = azurerm_container_app_environment.dev.id
+  workload_profile_name        = "Consumption"
   replica_timeout_in_seconds   = 1800
   replica_retry_limit          = 1
   tags                         = local.tags
