@@ -2,7 +2,7 @@
 
 from crepro_common import build_crud_router
 from crepro_property.models import Property, Unit
-from crepro_property.repository import properties, units
+from crepro_property.repository import outbox, properties, units
 from crepro_property.schemas import PropertyCreate, PropertyUpdate, UnitCreate, UnitUpdate
 from fastapi import APIRouter
 
@@ -17,6 +17,11 @@ router.include_router(
         create_schema=PropertyCreate,
         update_schema=PropertyUpdate,
         not_found_detail="Property not found",
+        # Erp adapter's doctype_map already routes "PropertyCreated" to the
+        # external ERP's Property doctype (services/erp_adapter/.../push.py).
+        outbox=outbox,
+        outbox_event_type="PropertyCreated",
+        outbox_source="property",
     )
 )
 

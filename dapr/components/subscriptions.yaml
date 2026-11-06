@@ -1,0 +1,15 @@
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: erp-adapter-erp-events
+spec:
+  # Declarative subscription: Dapr reads this from the resources path at
+  # sidecar startup and delivers erp-events messages to the route below
+  # itself, instead of relying on the app exposing a GET /dapr/subscribe
+  # endpoint (which erp_adapter does not implement). Matches pubsub.yaml's
+  # "pubsub" component name/outbox_relay.py's default topic.
+  pubsubname: pubsub
+  topic: erp-events
+  route: /subscribe/erp-events
+scopes:
+  - erp_adapter

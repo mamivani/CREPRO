@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -63,6 +64,15 @@ def test_in_memory_repository_isolates_tenants() -> None:
     assert [row.id for row in repo.list(tenant_a)] == [row_a.id]
     with pytest.raises(EntityNotFoundError):
         repo.get(tenant_b, row_a.id)
+
+
+def test_in_memory_repository_list_all_bypasses_tenant_scoping() -> None:
+    repo = InMemoryRepository[TenantScopedEntity]()
+    tenant_a, tenant_b = uuid4(), uuid4()
+    row_a = repo.create(TenantScopedEntity(tenant_id=tenant_a))
+    row_b = repo.create(TenantScopedEntity(tenant_id=tenant_b))
+
+    assert {row.id for row in repo.list_all()} == {row_a.id, row_b.id}
 
 
 def test_require_tenant_binds_and_unbinds_around_request() -> None:
@@ -181,6 +191,98 @@ def test_build_crud_router_supports_full_lifecycle() -> None:
 
     assert client.delete(f"/widgets/{widget_id}", headers=headers).status_code == 204
     assert client.get(f"/widgets/{widget_id}", headers=headers).status_code == 404
+
+
+def test_build_crud_router_emits_outbox_entry_on_create() -> None:
+    from crepro_common.models import OutboxEntry, OutboxEntryStatus
+
+    repository = InMemoryRepository[_Widget]()
+    outbox = InMemoryRepository[OutboxEntry]()
+    app = create_app("sample")
+    app.include_router(
+        build_crud_router(
+            prefix="/widgets",
+            tags=["widgets"],
+            repository=repository,
+            entity_cls=_Widget,
+            create_schema=_WidgetCreate,
+            update_schema=_WidgetUpdate,
+            not_found_detail="Widget not found",
+            outbox=outbox,
+            outbox_event_type="WidgetCreated",
+            outbox_source="sample",
+        )
+    )
+    client = TestClient(app)
+    tenant_id = uuid4()
+
+    created = client.post("/widgets", json={"name": "gadget"}, headers={"X-Tenant-Id": str(tenant_id)})
+    widget_id = created.json()["id"]
+
+    entries = outbox.list(tenant_id)
+    assert len(entries) == 1
+    assert entries[0].event_type == "WidgetCreated"
+    assert entries[0].source == "sample"
+    assert entries[0].status == OutboxEntryStatus.PENDING
+    assert entries[0].payload["platform_id"] == widget_id
+    assert entries[0].payload["name"] == "gadget"
+
+
+def test_build_crud_router_without_outbox_args_emits_nothing() -> None:
+    """Omitting outbox args (the default) must not change existing services' behavior."""
+    repository = InMemoryRepository[_Widget]()
+    app = create_app("sample")
+    app.include_router(
+        build_crud_router(
+            prefix="/widgets",
+            tags=["widgets"],
+            repository=repository,
+            entity_cls=_Widget,
+            create_schema=_WidgetCreate,
+            update_schema=_WidgetUpdate,
+            not_found_detail="Widget not found",
+        )
+    )
+    client = TestClient(app)
+
+    response = client.post("/widgets", json={"name": "gadget"}, headers={"X-Tenant-Id": str(uuid4())})
+
+    assert response.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_create_app_runs_and_cancels_outbox_relay_task(monkeypatch) -> None:
+    from crepro_common.models import OutboxEntry
+
+    relay_started = asyncio.Event()
+    relay_cancelled = asyncio.Event()
+
+    async def fake_relay_forever(outbox, *, topic):
+        relay_started.set()
+        try:
+            await asyncio.Event().wait()  # Runs until cancelled, like the real relay loop.
+        except asyncio.CancelledError:
+            relay_cancelled.set()
+            raise
+
+    monkeypatch.setattr("crepro_common.app.run_outbox_relay_forever", fake_relay_forever)
+
+    outbox: InMemoryRepository[OutboxEntry] = InMemoryRepository()
+    app = create_app("sample", outbox=outbox)
+
+    with TestClient(app) as client:
+        await asyncio.wait_for(relay_started.wait(), timeout=1)
+        assert client.get("/health").status_code == 200
+
+    await asyncio.wait_for(relay_cancelled.wait(), timeout=1)
+
+
+def test_create_app_without_outbox_has_no_relay_task() -> None:
+    """The common case (no outbox): behaves exactly as before, no background task."""
+    app = create_app("sample")
+
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
 
 
 def _settings() -> Settings:
