@@ -9,6 +9,13 @@ defaults:
   run:
     shell: bash
 
+# All jobs run on self-hosted runners (windows-runner-1..5, registered
+# against this repo and installed as auto-restarting Windows Services). This
+# previously tried GitHub-hosted runners first with a self-hosted fallback to
+# control cost on a private repo; the repo is now public (unlimited free
+# Actions minutes) and the self-hosted fleet is reliable, so the extra
+# hosted/fallback/aggregator jobs aren't worth the added complexity and job
+# count anymore.
 jobs:
   lint:
     runs-on: self-hosted
@@ -76,4 +83,3 @@ jobs:
           tags: crepro/${{ matrix.target.name }}:ci
           cache-from: type=gha,scope=${{ matrix.target.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
-
