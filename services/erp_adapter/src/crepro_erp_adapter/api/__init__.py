@@ -1,13 +1,18 @@
 """HTTP routes for the ERP adapter.
 
-These expose the adapter ledger and tenant mapping table for inspection and manual repair.
-The actual push (Service Bus subscriber) and pull (reconciliation job) paths described in
-docs/design/erp-adapter-hybrid.md are separate workers, not HTTP endpoints, and are out of
-scope for this scaffold.
+These expose:
+1. The adapter ledger and tenant mapping table for inspection and manual repair
+2. A Dapr pub/sub push endpoint for receiving domain events from the outbox relay
+
+The pull (reconciliation job) path described in docs/design/erp-adapter-hybrid.md
+is a separate scheduled worker, not an HTTP endpoint, and is out of scope for this scaffold.
 """
 
-from crepro_common import build_crud_router
+import logging
+
+from crepro_common import EventEnvelope, build_crud_router
 from crepro_erp_adapter.models import AdapterLedgerEntry, TenantErpMapping
+from crepro_erp_adapter.push import create_subscriber_handler
 from crepro_erp_adapter.repository import ledger_entries, tenant_mappings
 from crepro_erp_adapter.schemas import (
     AdapterLedgerEntryCreate,
@@ -16,6 +21,8 @@ from crepro_erp_adapter.schemas import (
     TenantErpMappingUpdate,
 )
 from fastapi import APIRouter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -42,3 +49,18 @@ router.include_router(
         not_found_detail="Tenant mapping not found",
     )
 )
+
+
+# Dapr pub/sub push endpoint
+@router.post("/subscribe/erp-events", tags=["pub/sub"])
+async def subscribe_erp_events(event: EventEnvelope) -> dict:
+    """
+    Dapr pub/sub push endpoint for erp-events topic.
+
+    This endpoint is called by Dapr when a new event is published to erp-events.
+    The handler checks idempotency and posts to the external ERP if not already posted.
+    """
+    logger.debug(f"Received event: {event.event_type} from {event.source}")
+    handler = create_subscriber_handler()
+    result = await handler(event)
+    return result

@@ -63,6 +63,10 @@ jobs:
             dockerfile: services/reporting/Dockerfile
           - name: erp_adapter
             dockerfile: services/erp_adapter/Dockerfile
+          - name: erp_reconciliation
+            dockerfile: services/erp_reconciliation/Dockerfile
+          - name: erp_stub
+            dockerfile: services/erp_stub/Dockerfile
     steps:
       - uses: actions/checkout@v7
 
