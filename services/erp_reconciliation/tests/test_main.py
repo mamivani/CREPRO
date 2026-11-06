@@ -47,26 +47,28 @@ async def test_initialize_clients_uses_mocks_when_only_some_vars_set(monkeypatch
 async def test_initialize_clients_builds_real_clients_when_fully_configured(monkeypatch) -> None:
     from crepro_erp_adapter.adapter_service_client import AdapterServiceClient
     from crepro_erp_adapter.erp_client import ERPClient
+    from crepro_erp_adapter.postgres_dlq_repo import PostgresDLQRepo
     from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
+    from crepro_erp_reconciliation.erp_gateway import ERPReadGateway
 
     monkeypatch.setenv("ERP_BASE_URL", "https://erp.example.com")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@host/db")
     monkeypatch.setenv("ADAPTER_SERVICE_URL", "http://erp-adapter.internal")
-    monkeypatch.delenv("DAPR_STATE_STORE", raising=False)
 
     async def fake_initialize(self):
         pass
 
     monkeypatch.setattr(PostgresLedgerRepo, "initialize", fake_initialize)
+    monkeypatch.setattr(PostgresDLQRepo, "initialize", fake_initialize)
 
     erp_client, ledger_repo, dlq_repo, adapter_client = await _initialize_clients()
 
-    assert isinstance(erp_client, ERPClient)
-    assert erp_client.base_url == "https://erp.example.com"
+    assert isinstance(erp_client, ERPReadGateway)
+    assert isinstance(erp_client._erp, ERPClient)
+    assert erp_client._erp.base_url == "https://erp.example.com"
     assert isinstance(ledger_repo, PostgresLedgerRepo)
     assert isinstance(adapter_client, AdapterServiceClient)
-    # No Dapr sidecar reachable in the test environment: falls back to mock, not a crash.
-    assert isinstance(dlq_repo, MockDLQRepo)
+    assert isinstance(dlq_repo, PostgresDLQRepo)
 
 
 @pytest.mark.asyncio
@@ -107,6 +109,7 @@ async def test_run_reconciliation_job_unknown_mode_logs_and_completes(monkeypatc
 async def test_run_reconciliation_job_shuts_down_ledger_repo_with_shutdown_method(monkeypatch) -> None:
     """Covers the `if hasattr(ledger_repo, "shutdown")` cleanup path, which MockLedgerRepo
     doesn't have but PostgresLedgerRepo does."""
+    from crepro_erp_adapter.postgres_dlq_repo import PostgresDLQRepo
     from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
 
     monkeypatch.setenv("ERP_BASE_URL", "https://erp.example.com")
@@ -121,7 +124,7 @@ async def test_run_reconciliation_job_shuts_down_ledger_repo_with_shutdown_metho
         pass
 
     async def fake_shutdown(self):
-        shutdown_calls.append(True)
+        shutdown_calls.append(type(self).__name__)
 
     async def fake_scan(*args, **kwargs):
         return "scan-report"
@@ -131,12 +134,14 @@ async def test_run_reconciliation_job_shuts_down_ledger_repo_with_shutdown_metho
 
     monkeypatch.setattr(PostgresLedgerRepo, "initialize", fake_initialize)
     monkeypatch.setattr(PostgresLedgerRepo, "shutdown", fake_shutdown)
+    monkeypatch.setattr(PostgresDLQRepo, "initialize", fake_initialize)
+    monkeypatch.setattr(PostgresDLQRepo, "shutdown", fake_shutdown)
     monkeypatch.setattr("crepro_erp_reconciliation.main.run_incremental_scan", fake_scan)
     monkeypatch.setattr("crepro_erp_reconciliation.main.replay_dlq_events", fake_replay)
 
     await run_reconciliation_job()
 
-    assert shutdown_calls == [True]
+    assert sorted(shutdown_calls) == ["PostgresDLQRepo", "PostgresLedgerRepo"]
 
 
 @pytest.mark.asyncio
@@ -153,26 +158,37 @@ async def test_run_reconciliation_job_reraises_scan_failures_after_cleanup(monke
 
 
 @pytest.mark.asyncio
-async def test_initialize_clients_uses_real_dlq_repo_when_dapr_client_constructs(monkeypatch) -> None:
-    """The DaprDLQRepo branch (as opposed to the MockDLQRepo fallback, covered
-    above) only runs when a Dapr sidecar is actually reachable; fake that here."""
-    import dapr.clients as dapr_clients_module
-    from crepro_erp_adapter.dapr_dlq_repo import DaprDLQRepo
+async def test_run_reconciliation_job_runs_dlq_replay_in_production(monkeypatch) -> None:
+    """Production wiring builds a PostgresDLQRepo, so replay runs in the job."""
+    from crepro_erp_adapter.postgres_dlq_repo import PostgresDLQRepo
     from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
 
     monkeypatch.setenv("ERP_BASE_URL", "https://erp.example.com")
     monkeypatch.setenv("DATABASE_URL", "******host/db")
     monkeypatch.setenv("ADAPTER_SERVICE_URL", "http://erp-adapter.internal")
+    monkeypatch.setenv("RECONCILIATION_MODE", "INCREMENTAL")
+    monkeypatch.setenv("TENANT_ID", str(uuid4()))
+
+    replay_calls = []
 
     async def fake_initialize(self):
         pass
 
+    async def fake_scan(*args, **kwargs):
+        return "scan-report"
+
+    async def fake_replay(*args, **kwargs):
+        replay_calls.append(True)
+        return "replay-report"
+
     monkeypatch.setattr(PostgresLedgerRepo, "initialize", fake_initialize)
-    monkeypatch.setattr(dapr_clients_module, "DaprClient", lambda: object())
+    monkeypatch.setattr(PostgresDLQRepo, "initialize", fake_initialize)
+    monkeypatch.setattr("crepro_erp_reconciliation.main.run_incremental_scan", fake_scan)
+    monkeypatch.setattr("crepro_erp_reconciliation.main.replay_dlq_events", fake_replay)
 
-    _, _, dlq_repo, _ = await _initialize_clients()
+    await run_reconciliation_job()
 
-    assert isinstance(dlq_repo, DaprDLQRepo)
+    assert replay_calls == [True]
 
 
 @pytest.mark.asyncio
@@ -187,9 +203,9 @@ async def test_mock_clients_implement_expected_interface() -> None:
     assert await erp_client.get_record(tenant_id, "Customer", "CUST-1") is None
 
     ledger_repo = MockLedgerRepo()
-    assert ledger_repo.get_by_platform_id(tenant_id, entity_id) is None
+    assert await ledger_repo.get_by_platform_id(tenant_id, entity_id) is None
     assert (
-        ledger_repo.create(
+        await ledger_repo.create(
             tenant_id=tenant_id,
             entity_id=entity_id,
             status="POSTED",
@@ -198,13 +214,13 @@ async def test_mock_clients_implement_expected_interface() -> None:
         )
         is None
     )
-    assert ledger_repo.update(uuid4()) is None
+    assert await ledger_repo.update(uuid4()) is None
 
     dlq_repo = MockDLQRepo()
-    assert dlq_repo.update(uuid4()) is None
+    assert await dlq_repo.update(uuid4()) is None
 
     adapter_client = MockAdapterClient()
-    assert await adapter_client.post_to_erp_with_retry(tenant_id, entity_id, "Customer", {}) == (False, None)
+    assert await adapter_client.repost_entity(tenant_id, entity_id, "Customer", {}) == (False, None)
 
 
 def test_main_invokes_asyncio_run_with_the_reconciliation_job(monkeypatch) -> None:

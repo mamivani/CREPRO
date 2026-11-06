@@ -48,6 +48,7 @@ class MockLedgerEntry:
         self.erp_docid = erp_docid
         self.external_doctype = external_doctype
         self.attempts = attempts
+        self.last_error = None
         self.created_at = created_at or datetime.utcnow()
         self.updated_at = updated_at or datetime.utcnow()
 
@@ -65,7 +66,7 @@ class MockDLQEvent:
         original_payload=None,
         status="PENDING",
         routed_at=None,
-        dlq_replay_attempts=0,
+        retry_count=0,
     ):
         self.id = id or uuid4()
         self.tenant_id = tenant_id or uuid4()
@@ -75,7 +76,8 @@ class MockDLQEvent:
         self.original_payload = original_payload or {"name": "Test"}
         self.status = status
         self.routed_at = routed_at or datetime.utcnow()
-        self.dlq_replay_attempts = dlq_replay_attempts
+        self.retry_count = retry_count
+        self.last_retry_at = None
 
 
 class MockERPClient:
@@ -114,7 +116,7 @@ class MockLedgerRepo:
         self.last_incremental_scan = {}
         self.last_full_scan = {}
 
-    def get_by_platform_id(self, tenant_id, platform_id):
+    async def get_by_platform_id(self, tenant_id, platform_id):
         # Normalize to UUID for comparison
         if isinstance(platform_id, str):
             try:
@@ -134,7 +136,7 @@ class MockLedgerRepo:
                 return entry
         return None
 
-    def create(
+    async def create(
         self,
         tenant_id,
         entity_id,
@@ -159,22 +161,22 @@ class MockLedgerRepo:
         self.entries.append(entry)
         return entry
 
-    def get_last_incremental_scan(self, tenant_id):
+    async def get_last_incremental_scan(self, tenant_id):
         return self.last_incremental_scan.get(tenant_id)
 
-    def update_last_incremental_scan(self, tenant_id, timestamp):
+    async def update_last_incremental_scan(self, tenant_id, timestamp):
         self.last_incremental_scan[tenant_id] = timestamp
 
-    def get_last_full_scan(self, tenant_id):
+    async def get_last_full_scan(self, tenant_id):
         return self.last_full_scan.get(tenant_id)
 
-    def update_last_full_scan(self, tenant_id, timestamp):
+    async def update_last_full_scan(self, tenant_id, timestamp):
         self.last_full_scan[tenant_id] = timestamp
 
-    def get_all(self, tenant_id, statuses):
+    async def get_all(self, tenant_id, statuses):
         return [e for e in self.entries if e.tenant_id == tenant_id and e.status in statuses]
 
-    def update(self, entry_id, **kwargs):
+    async def update(self, entry_id, **kwargs):
         for entry in self.entries:
             if entry.id == entry_id:
                 for key, value in kwargs.items():
@@ -195,19 +197,22 @@ class MockDLQRepo:
         self.events.append(event)
         return event
 
-    def get_pending_events(self, tenant_id, routed_after, status):
+    async def get_pending_events(self, tenant_id, routed_after, status):
         return [
             e
             for e in self.events
             if e.tenant_id == tenant_id and e.status == status and e.routed_at >= routed_after
         ]
 
-    def update(self, event_id, **kwargs):
+    async def get_latest_for_entity(self, tenant_id, entity_id):
+        matches = [e for e in self.events if e.tenant_id == tenant_id and e.entity_id == entity_id]
+        return max(matches, key=lambda e: e.routed_at, default=None)
+
+    async def update(self, record_id, **kwargs):
         for event in self.events:
-            if event.id == event_id:
+            if event.id == record_id:
                 for key, value in kwargs.items():
-                    if hasattr(event, key):
-                        setattr(event, key, value)
+                    setattr(event, key, value)
                 return event
         return None
 
@@ -219,14 +224,13 @@ class MockAdapterClient:
         self.success = success
         self.post_calls = []
 
-    async def post_to_erp_with_retry(self, tenant_id, entity_id, external_doctype, payload, dlq_replay=False):
+    async def repost_entity(self, tenant_id, entity_id, external_doctype, payload):
         self.post_calls.append(
             {
                 "tenant_id": tenant_id,
                 "entity_id": entity_id,
                 "external_doctype": external_doctype,
                 "payload": payload,
-                "dlq_replay": dlq_replay,
             }
         )
         if self.success:

@@ -29,7 +29,7 @@ async def test_dlq_replay_recovers_pending_events_successfully(tenant_id, dlq_re
     assert report.dlq_events_attempted == 1
     assert report.dlq_events_recovered == 1
     assert report.dlq_events_manual_review == 0
-    assert adapter_client.post_calls[0]["dlq_replay"] is True
+    assert adapter_client.post_calls[0]["entity_id"] == dlq_repo.events[0].entity_id
 
     # Verify event status updated
     updated_event = dlq_repo.events[0]
@@ -43,7 +43,7 @@ async def test_dlq_replay_requeues_on_first_failure(tenant_id, dlq_repo, adapter
     dlq_repo.add_event(
         tenant_id=tenant_id,
         status="PENDING",
-        dlq_replay_attempts=0,
+        retry_count=0,
     )
     adapter_client.success = False
 
@@ -62,7 +62,7 @@ async def test_dlq_replay_requeues_on_first_failure(tenant_id, dlq_repo, adapter
     # Verify event still PENDING with retry count incremented
     updated_event = dlq_repo.events[0]
     assert updated_event.status == "PENDING"
-    assert updated_event.dlq_replay_attempts == 1
+    assert updated_event.retry_count == 1
 
 
 @pytest.mark.asyncio
@@ -72,7 +72,7 @@ async def test_dlq_replay_escalates_after_max_retries(tenant_id, dlq_repo, adapt
     dlq_repo.add_event(
         tenant_id=tenant_id,
         status="PENDING",
-        dlq_replay_attempts=1,  # Already failed once
+        retry_count=1,  # Already failed once
     )
     adapter_client.success = False
 
@@ -91,7 +91,7 @@ async def test_dlq_replay_escalates_after_max_retries(tenant_id, dlq_repo, adapt
     # Verify event status updated to MANUAL_REVIEW_REQUIRED
     updated_event = dlq_repo.events[0]
     assert updated_event.status == "MANUAL_REVIEW_REQUIRED"
-    assert updated_event.dlq_replay_attempts == 2
+    assert updated_event.retry_count == 2
 
 
 @pytest.mark.asyncio
@@ -156,7 +156,7 @@ async def test_dlq_replay_multiple_events_with_mixed_results(tenant_id, dlq_repo
         tenant_id=tenant_id,
         status="PENDING",
         entity_id=uuid4(),
-        dlq_replay_attempts=0,
+        retry_count=0,
     )
 
     # 3. Will fail twice (manual review)
@@ -164,18 +164,17 @@ async def test_dlq_replay_multiple_events_with_mixed_results(tenant_id, dlq_repo
         tenant_id=tenant_id,
         status="PENDING",
         entity_id=uuid4(),
-        dlq_replay_attempts=1,
+        retry_count=1,
     )
 
     # Mock adapter to fail for events 2 and 3
-    async def mock_post_with_sequence(*args, **kwargs):
-        entity_id = kwargs["entity_id"]
+    async def mock_repost_with_sequence(tenant_id, entity_id, external_doctype, payload):
         if entity_id == event1.entity_id:
             return True, "CUST-001"
         else:
             return False, None
 
-    adapter_client.post_to_erp_with_retry = mock_post_with_sequence
+    adapter_client.repost_entity = mock_repost_with_sequence
 
     # Execute
     report = await replay_dlq_events(
@@ -206,7 +205,7 @@ async def test_dlq_replay_escalates_to_manual_review_on_adapter_exception(
     async def boom(*args, **kwargs):
         raise RuntimeError("adapter service down")
 
-    adapter_client.post_to_erp_with_retry = boom
+    adapter_client.repost_entity = boom
 
     # Execute
     report = await replay_dlq_events(
@@ -228,7 +227,7 @@ async def test_dlq_replay_reraises_dlq_repo_errors(tenant_id, adapter_client):
     swallowing them -- it must not record a false 'clean' replay."""
 
     class BoomDLQRepo:
-        def get_pending_events(self, **kwargs):
+        async def get_pending_events(self, **kwargs):
             raise RuntimeError("state store unreachable")
 
     with pytest.raises(RuntimeError, match="state store unreachable"):

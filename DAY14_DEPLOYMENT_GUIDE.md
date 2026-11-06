@@ -30,11 +30,10 @@ Day 14 implements full pipeline deployment to Azure Container Apps with real cli
 - Tracks: status, attempts, last_error, erp_docid, timestamps
 - Indexes on tenant_id, platform_entity_id, status for performance
 
-**Dapr DLQ Repository** (`services/erp_adapter/src/crepro_erp_adapter/dapr_dlq_repo.py`)
-- State management via Dapr
-- Key format: `dlq:{tenant_id}:{event_id}`
-- Methods: `store_event()`, `get_pending_events()`, `update_event()`, `mark_recovered()`, `mark_manual_review()`
-- 24-hour retention window with retry tracking
+**Postgres DLQ Repository** (`services/erp_adapter/src/crepro_erp_adapter/postgres_dlq_repo.py`)
+- Stores DLQ events in the platform `dlq_events` table, so the reconciliation jobs (no Dapr sidecar) can replay them
+- Methods: `store_event()` (idempotent on `event_id`), `get_pending_events()`, `update()` (status, retry_count, last_retry_at)
+- Replay attempts are capped at 2 (`MAX_REPLAY_ATTEMPTS`), then the row moves to `MANUAL_REVIEW_REQUIRED`
 
 **Adapter Service Client** (`services/erp_adapter/src/crepro_erp_adapter/adapter_service_client.py`)
 - HTTP client for DLQ replay
@@ -92,14 +91,15 @@ export ERP_USERNAME="Administrator"
 export ERP_PASSWORD="$(az keyvault secret show --name erp-password --vault-name crepro-dev-kv --query value -o tsv)"
 export DATABASE_URL="$(az keyvault secret show --name database-url --vault-name crepro-dev-kv --query value -o tsv)"
 export ADAPTER_SERVICE_URL="http://erp-adapter.svc.cluster.local"
-export DAPR_STATE_STORE="dlq-store"
 ```
 
 ### 2.2 Dapr Configuration
 
 Container App Environment includes Dapr components:
 - `pubsub` (Azure Service Bus) - erp-events and dead_letter_events topics
-- `dlq-store` (Blob Storage) - State for DLQ events
+
+DLQ events are stored in the platform PostgreSQL `dlq_events` table (not Dapr state), so the
+reconciliation jobs, which have no Dapr sidecar, can read and replay them.
 
 Pub/sub scopes:
 - erp-adapter: subscribes to erp-events, publishes to dead_letter_events
@@ -111,16 +111,21 @@ Pub/sub scopes:
 
 ### 3.1 Infrastructure Setup
 
-**Terraform** (`infrastructure/terraform/main.tf`)
+**Terraform** (`infra/terraform/environments/dev`, the only Azure stack; see the correction note above)
 
-Resources created:
-- Resource Group: crepro-dev-rg
-- Container Registry: creprobuilddev
-- PostgreSQL Server: crepro-db-dev (14, B2s SKU, 32 GB)
-- Container App Environment: crepro-dev-env
-- Log Analytics Workspace
-- Application Insights
-- Key Vault: crepro-dev-kv (for secrets)
+Foundation (always applied): resource group `rg-crepro-dev`, VNet with delegated subnets, private
+PostgreSQL Flexible Server 16, Key Vault, storage account, Container Registry, Log Analytics,
+Container App Environment, Service Bus namespace with the `erp-events` topic.
+
+Day 14 additions (`apps.tf`, `observability.tf`), gated by `deploy_services` (default `false`):
+- User-assigned identity with AcrPull on ACR and Key Vault Secrets User on the vault
+- Dapr components on the environment: `pubsub` (`pubsub.azure.servicebus.topics`, scoped to
+  `property` and `erp-adapter`)
+- 11 service Container Apps (`ca-crepro-<service>`), Dapr app IDs, `/health` probes, secrets from Key Vault.
+  `erp_adapter` is internal-only (its `/api/repost` is unauthenticated and writes to the ERP)
+- Two Container Apps Jobs running `crepro_erp_reconciliation`: INCREMENTAL every 15 min, FULL daily at 02:00 UTC
+- Application Insights (workspace-based) with its connection string in Key Vault, and a failed-requests
+  alert when `alert_email` is set
 
 ### 3.2 Deployment Steps
 
@@ -129,73 +134,54 @@ Resources created:
 az login
 az account set --subscription YOUR-SUBSCRIPTION-ID
 
-# 2. Update Terraform variables
-cd infrastructure/terraform
-# Edit dev.tfvars with your subscription ID
+# 2. Initialize Terraform (state backend from backend.hcl)
+cd infra/terraform/environments/dev
+terraform init -backend-config=backend.hcl
 
-# 3. Initialize Terraform
-terraform init
+# 3. Apply the foundation first (no images needed yet)
+export TF_VAR_erp_password="YOUR-ERP-PASSWORD"   # stored in Key Vault as erp-password
+terraform apply
 
-# 4. Set sensitive variables
-export TF_VAR_erp_password="YOUR-ERP-PASSWORD"
-export TF_VAR_postgres_password="YOUR-POSTGRES-PASSWORD"
+# 4. Initialize database schema (Postgres is private: run from inside the VNet or via a jump host)
+psql "host=$(terraform output -raw postgres_fqdn) user=creproadmin dbname=crepro sslmode=require" -f infrastructure/database/01-adapter-ledger-schema.sql
 
-# 5. Deploy infrastructure
-terraform plan -var-file="dev.tfvars" -out=tfplan
-terraform apply tfplan
+# 5. Build and push the images (names: crepro-<service>; build context is the repo root)
+ACR=$(terraform output -raw container_registry_login_server)
+az acr login --name "${ACR%%.*}"
+for svc in identity tenant property lease reservation payment document utility maintenance reporting erp_adapter erp_reconciliation; do
+  name=${svc//_/-}
+  docker build -f "services/$svc/Dockerfile" -t "$ACR/crepro-$name:$IMAGE_TAG" .
+  docker push "$ACR/crepro-$name:$IMAGE_TAG"
+done
 
-# 6. Initialize database
-psql -h $(terraform output -raw database_host) -U pgadmin -d crepro < infrastructure/database/01-adapter-ledger-schema.sql
+# 6. Deploy services, jobs and Dapr components
+export TF_VAR_dev_tenant_id="TENANT-UUID"
+export TF_VAR_erp_base_url="https://erp.example.com"
+terraform apply -var deploy_services=true -var image_tag="$IMAGE_TAG" -var alert_email="you@example.com"
 
-# 7. Build and push container images
-cd services/erp_adapter
-docker build -t creprobuilddev.azurecr.io/crepro-erp-adapter:latest .
-az acr login --name creprobuilddev
-docker push creprobuilddev.azurecr.io/crepro-erp-adapter:latest
-
-cd ../erp_reconciliation
-docker build -t creprobuilddev.azurecr.io/crepro-erp-reconciliation:latest .
-docker push creprobuilddev.azurecr.io/crepro-erp-reconciliation:latest
-
-# 8. Deploy services (requires additional Container App Terraform config - Phase 3.3)
+# 7. Smoke tests
+export SMOKE_SERVICE_URLS="$(terraform output -json service_urls)"
+python -m pytest tests/smoke -v
 ```
+
+Known gaps for this phase:
+- DLQ replay runs in the reconciliation jobs. The jobs have no Dapr sidecar, so DLQ events live in the
+  platform PostgreSQL `dlq_events` table, which the adapter writes and the jobs read via `DATABASE_URL`.
+  Replay re-posts through the adapter's `POST /api/repost`, with at most 2 attempts before `MANUAL_REVIEW_REQUIRED`.
+  The `dlq_events` schema change in `infrastructure/database/01-adapter-ledger-schema.sql` must be applied to the
+  private database before this works.
+- Event subscription uses one mechanism everywhere: the adapter's `GET /dapr/subscribe`. The declarative `dapr/components/subscriptions.yaml` was removed, so local compose and Azure register the same route once.
+
 
 ### 3.3 Container App Definitions
 
-For each service, create Container App with:
-- Image from registry
-- Environment variables from Key Vault
-- Dapr sidecar enabled
-- Health checks
-- Resource limits (CPU, memory)
+Defined in `infra/terraform/environments/dev/apps.tf` (`azurerm_container_app.service`, one per service in `local.services`).
+Each app has: a user-assigned identity, secrets referenced from Key Vault (`database-url`, `erp-password`,
+`appinsights-connection-string`), a Dapr sidecar (`app_id` = service name with dashes), `/health` liveness and
+readiness probes, and 0.25 vCPU / 0.5 GiB with 1–2 replicas. The `erp_adapter` app also gets `ERP_BASE_URL`,
+`ERP_USERNAME`, `ERP_PASSWORD` and `CREPRO_DATABASE_URL` (DLQ writes go to Postgres).
 
-Example for erp-adapter:
-```yaml
-apiVersion: containerapp.io/v1beta1
-kind: ContainerApp
-metadata:
-  name: erp-adapter
-spec:
-  environmentId: /subscriptions/.../containerAppEnvironments/crepro-dev-env
-  template:
-    containers:
-      - image: creprobuilddev.azurecr.io/crepro-erp-adapter:latest
-        name: adapter
-        env:
-          - name: ERP_BASE_URL
-            value: "https://erp.example.com"
-          - name: DATABASE_URL
-            secretRef: database-url
-          - name: ERP_PASSWORD
-            secretRef: erp-password
-        resources:
-          cpu: 1
-          memory: 2Gi
-    daprConfig:
-      enabled: true
-      appId: erp-adapter
-      appPort: 8000
-```
+`azurerm_container_app.erp_stub` runs `services/erp_stub` with internal ingress only (no external URL). When `erp_base_url` is empty, the adapter and reconciliation jobs use its internal FQDN, so dev has an ERP target without a real ERPNext instance. Set `erp_base_url` to point at a real ERP instead.
 
 ---
 

@@ -5,8 +5,7 @@ Configuration via environment variables:
 - RECONCILIATION_MODE: INCREMENTAL or FULL
 - TENANT_ID: UUID of tenant to reconcile
 - ERP_BASE_URL: Optional ERP base URL (if set, uses real ERP client)
-- DATABASE_URL: Optional PostgreSQL connection string
-- DAPR_STATE_STORE: Optional Dapr state store name
+- DATABASE_URL: Optional PostgreSQL connection string (ledger, reconciliation state, and DLQ)
 """
 
 import asyncio
@@ -45,31 +44,31 @@ class MockERPClient:
 class MockLedgerRepo:
     """Mock ledger repository for development/testing."""
 
-    def get_last_incremental_scan(self, tenant_id):
+    async def get_last_incremental_scan(self, tenant_id):
         """Get last incremental scan time."""
         return None
 
-    def update_last_incremental_scan(self, tenant_id, timestamp):
+    async def update_last_incremental_scan(self, tenant_id, timestamp):
         """Update last incremental scan time."""
         pass
 
-    def update_last_full_scan(self, tenant_id, timestamp):
+    async def update_last_full_scan(self, tenant_id, timestamp):
         """Update last full scan time."""
         pass
 
-    def get_by_platform_id(self, tenant_id, platform_id):
+    async def get_by_platform_id(self, tenant_id, platform_id):
         """Get ledger entry by platform ID."""
         return None
 
-    def create(self, **kwargs):
+    async def create(self, **kwargs):
         """Create a ledger entry."""
         pass
 
-    def get_all(self, tenant_id, statuses):
+    async def get_all(self, tenant_id, statuses):
         """Get all ledger entries for a tenant with given statuses."""
         return []
 
-    def update(self, entry_id, **kwargs):
+    async def update(self, entry_id, **kwargs):
         """Update a ledger entry."""
         pass
 
@@ -77,11 +76,15 @@ class MockLedgerRepo:
 class MockDLQRepo:
     """Mock DLQ repository for development/testing."""
 
-    def get_pending_events(self, tenant_id, routed_after, status):
+    async def get_pending_events(self, tenant_id, routed_after, status):
         """Get pending DLQ events."""
         return []
 
-    def update(self, event_id, **kwargs):
+    async def get_latest_for_entity(self, tenant_id, entity_id):
+        """Get the latest DLQ event for an entity."""
+        return None
+
+    async def update(self, event_id, **kwargs):
         """Update a DLQ event."""
         pass
 
@@ -89,8 +92,8 @@ class MockDLQRepo:
 class MockAdapterClient:
     """Mock adapter service client."""
 
-    async def post_to_erp_with_retry(self, tenant_id, entity_id, external_doctype, payload, dlq_replay=False):
-        """Post to ERP with retry."""
+    async def repost_entity(self, tenant_id, entity_id, external_doctype, payload):
+        """Repost an entity through the adapter service."""
         return False, None
 
 
@@ -113,34 +116,32 @@ async def _initialize_clients():
 
         # Import real clients (lazy import to avoid dependency if not needed)
         from crepro_erp_adapter.adapter_service_client import AdapterServiceClient
-        from crepro_erp_adapter.dapr_dlq_repo import DaprDLQRepo
         from crepro_erp_adapter.erp_client import ERPClient
+        from crepro_erp_adapter.postgres_dlq_repo import PostgresDLQRepo
         from crepro_erp_adapter.postgres_ledger_repo import PostgresLedgerRepo
+
+        from .erp_gateway import ERPReadGateway
 
         # Get credentials from environment/Key Vault
         erp_username = os.getenv("ERP_USERNAME", "Administrator")
         erp_password = os.getenv("ERP_PASSWORD", "")  # Should come from Key Vault
 
         # Initialize real ERP client
-        erp_client = ERPClient(
-            base_url=erp_base_url,
-            username=erp_username,
-            password=erp_password,
+        erp_client = ERPReadGateway(
+            ERPClient(
+                base_url=erp_base_url,
+                username=erp_username,
+                password=erp_password,
+            )
         )
 
         # Initialize real ledger repository
         ledger_repo = PostgresLedgerRepo(database_url)
         await ledger_repo.initialize()
 
-        # Initialize real DLQ repository (requires Dapr client)
-        try:
-            from dapr.clients import DaprClient
-
-            dapr_client = DaprClient()
-            dlq_repo = DaprDLQRepo(dapr_client)
-        except Exception:
-            logger.warning("Dapr client not available, falling back to mock DLQ repo", exc_info=True)
-            dlq_repo = MockDLQRepo()
+        # DLQ events live in the platform database, so the job reads them without a Dapr sidecar.
+        dlq_repo = PostgresDLQRepo(database_url)
+        await dlq_repo.initialize()
 
         # Initialize adapter service client
         adapter_client = AdapterServiceClient(adapter_service_url)
@@ -182,10 +183,10 @@ async def run_reconciliation_job():
                 erp_client=erp_client,
                 ledger_repo=ledger_repo,
                 dlq_repo=dlq_repo,
+                adapter_client=adapter_client,
             )
             logger.info(f"Incremental scan report: {report}")
 
-            # Also run DLQ replay
             logger.info("Running DLQ replay...")
             dlq_report = await replay_dlq_events(
                 tenant_id=tenant_id,
@@ -214,8 +215,9 @@ async def run_reconciliation_job():
         raise
     finally:
         # Cleanup
-        if hasattr(ledger_repo, "shutdown"):
-            await ledger_repo.shutdown()
+        for repo in (ledger_repo, dlq_repo):
+            if hasattr(repo, "shutdown"):
+                await repo.shutdown()
 
 
 def main():
