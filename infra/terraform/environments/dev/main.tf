@@ -106,18 +106,6 @@ resource "azurerm_role_assignment" "kv_secrets_officer_deployer" {
 
 # --- PostgreSQL Flexible Server (private, VNet-integrated) ---
 
-resource "random_password" "postgres_admin" {
-  length      = 24
-  special     = true
-  min_special = 2
-  min_upper   = 2
-  min_lower   = 2
-  min_numeric = 2
-  # Postgres' allowed special-character set is narrower than random_password's
-  # default; restrict to characters it accepts to avoid a server-side reject.
-  override_special = "!#$%&*()-_=+"
-}
-
 resource "azurerm_postgresql_flexible_server" "dev" {
   name                          = "psql-crepro-dev-${random_string.suffix.result}"
   resource_group_name           = azurerm_resource_group.dev.name
@@ -127,7 +115,7 @@ resource "azurerm_postgresql_flexible_server" "dev" {
   private_dns_zone_id           = azurerm_private_dns_zone.postgres.id
   public_network_access_enabled = false
   administrator_login           = var.postgres_admin_login
-  administrator_password        = random_password.postgres_admin.result
+  administrator_password        = var.postgres_admin_password
   storage_mb                    = 32768
   sku_name                      = "B_Standard_B1ms"
   # Azure picked this zone at create time since none was requested; pinned
@@ -147,7 +135,7 @@ resource "azurerm_postgresql_flexible_server_database" "crepro" {
 
 resource "azurerm_key_vault_secret" "postgres_admin_password" {
   name         = "postgres-admin-password"
-  value        = random_password.postgres_admin.result
+  value        = var.postgres_admin_password
   key_vault_id = azurerm_key_vault.dev.id
   depends_on   = [azurerm_role_assignment.kv_secrets_officer_deployer]
 }
@@ -155,7 +143,7 @@ resource "azurerm_key_vault_secret" "postgres_admin_password" {
 resource "azurerm_key_vault_secret" "postgres_database_url" {
   name = "postgres-database-url"
   # Matches crepro_common.config.Settings' CREPRO_DATABASE_URL shape.
-  value        = "postgresql://${var.postgres_admin_login}:${random_password.postgres_admin.result}@${azurerm_postgresql_flexible_server.dev.fqdn}:5432/${azurerm_postgresql_flexible_server_database.crepro.name}"
+  value        = "postgresql://${var.postgres_admin_login}:${var.postgres_admin_password}@${azurerm_postgresql_flexible_server.dev.fqdn}:5432/${azurerm_postgresql_flexible_server_database.crepro.name}"
   key_vault_id = azurerm_key_vault.dev.id
   depends_on   = [azurerm_role_assignment.kv_secrets_officer_deployer]
 }

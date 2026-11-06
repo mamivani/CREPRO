@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Iterable
 from uuid import UUID
 
@@ -20,6 +22,15 @@ class InMemoryRepository[T: TenantScopedEntity]:
 
     def list(self, tenant_id: UUID) -> list[T]:
         return [row for row in self._rows.values() if row.tenant_id == tenant_id]
+
+    def list_all(self) -> list[T]:
+        """Every row across every tenant, bypassing tenant scoping.
+
+        Only for internal, non-tenant-facing operations (e.g. the outbox relay
+        background task, which must drain pending events for every tenant).
+        Never expose this through an HTTP endpoint.
+        """
+        return list(self._rows.values())
 
     def get(self, tenant_id: UUID, entity_id: UUID) -> T:
         row = self._rows.get(entity_id)

@@ -55,6 +55,12 @@ jobs:
           - name: erp_adapter
             path: services/erp_adapter
             package: crepro_erp_adapter
+          - name: erp_reconciliation
+            path: services/erp_reconciliation
+            package: crepro_erp_reconciliation
+          - name: erp_stub
+            path: services/erp_stub
+            package: crepro_erp_stub
     steps:
       - uses: actions/checkout@v7
 
@@ -62,6 +68,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e packages/crepro-common[dev]
+          # erp_reconciliation's real-client path depends on crepro-erp-adapter,
+          # which (like crepro-common) is monorepo-local, not on PyPI (see
+          # services/erp_reconciliation/Dockerfile): install it first so pip
+          # can resolve that requirement.
+          if [ "${{ matrix.target.path }}" == "services/erp_reconciliation" ]; then
+            python -m pip install -e services/erp_adapter
+          fi
           if [ "${{ matrix.target.path }}" != "packages/crepro-common" ]; then
             python -m pip install -e "${{ matrix.target.path }}[dev]"
           fi

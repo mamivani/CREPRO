@@ -63,7 +63,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install gitleaks
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           $zipUrl = "https://github.com/gitleaks/gitleaks/releases/download/v$env:GITLEAKS_VERSION/gitleaks_$($env:GITLEAKS_VERSION)_windows_x64.zip"
@@ -109,6 +109,10 @@ jobs:
             dockerfile: services/reporting/Dockerfile
           - name: erp_adapter
             dockerfile: services/erp_adapter/Dockerfile
+          - name: erp_reconciliation
+            dockerfile: services/erp_reconciliation/Dockerfile
+          - name: erp_stub
+            dockerfile: services/erp_stub/Dockerfile
     steps:
       - uses: actions/checkout@v7
 
