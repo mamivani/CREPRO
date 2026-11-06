@@ -75,6 +75,54 @@ async def test_get_pending_events_maps_rows_to_replay_records() -> None:
     assert event.retry_count == 1
 
 
+class FakeRowPool(FakePool):
+    def __init__(self, row=None):
+        super().__init__()
+        self.row = row
+        self.fetchrow_calls = []
+
+    async def fetchrow(self, sql, *args):
+        self.fetchrow_calls.append((sql, args))
+        return self.row
+
+
+@pytest.mark.asyncio
+async def test_get_latest_for_entity_returns_most_recent_event() -> None:
+    tenant_id, event_id, entity_id = uuid4(), uuid4(), uuid4()
+    row = {
+        "id": uuid4(),
+        "tenant_id": tenant_id,
+        "event_id": event_id,
+        "platform_entity_id": entity_id,
+        "external_doctype": "Customer",
+        "reason": "boom",
+        "payload": '{"name": "Acme"}',
+        "status": "FAILED",
+        "retry_count": 2,
+        "routed_at": datetime.utcnow(),
+        "last_retry_at": None,
+    }
+    pool = FakeRowPool(row=row)
+    repo = _repo_with(pool)
+
+    event = await repo.get_latest_for_entity(tenant_id, entity_id)
+
+    sql, args = pool.fetchrow_calls[0]
+    assert "ORDER BY routed_at DESC" in sql
+    assert "LIMIT 1" in sql
+    assert args == (tenant_id, entity_id)
+    assert isinstance(event, DLQEventRecord)
+    assert event.original_event_id == event_id
+    assert event.retry_count == 2
+
+
+@pytest.mark.asyncio
+async def test_get_latest_for_entity_returns_none_when_no_row() -> None:
+    repo = _repo_with(FakeRowPool(row=None))
+
+    assert await repo.get_latest_for_entity(uuid4(), uuid4()) is None
+
+
 @pytest.mark.asyncio
 async def test_update_sets_whitelisted_columns() -> None:
     pool = FakePool()
