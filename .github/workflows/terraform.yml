@@ -22,6 +22,7 @@ defaults:
     shell: bash
     working-directory: infra/terraform/environments/dev
 
+# All jobs run on self-hosted runners: see build.yml's top-of-file comment.
 jobs:
   # Runs on every PR, push, and manual dispatch, so a plan is always visible
   # (including post-merge drift detection) before anyone chooses to apply it.
