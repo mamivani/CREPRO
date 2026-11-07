@@ -29,6 +29,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # See test.yml: pinned Python plus a per-job venv.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create isolated virtualenv
+        run: |
+          VENV="$RUNNER_TEMP/venv-$GITHUB_RUN_ID-$GITHUB_JOB"
+          python -m venv "$VENV"
+          echo "$VENV/bin" >> "$GITHUB_PATH"
+          echo "$VENV/Scripts" >> "$GITHUB_PATH"
+
       - name: Install Semgrep
         run: python -m pip install semgrep
 
