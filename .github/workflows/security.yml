@@ -29,12 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # See test.yml: pinned Python plus a per-job venv.
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
+      # Per-job venv avoids pip races on the shared self-hosted runners.
       - name: Create isolated virtualenv
         run: |
           VENV="$RUNNER_TEMP/venv-$GITHUB_RUN_ID-$GITHUB_JOB"
