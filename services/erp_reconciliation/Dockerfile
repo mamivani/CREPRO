@@ -10,7 +10,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # crepro-common and crepro-erp-adapter aren't published to PyPI, so they're
 # installed from this monorepo alongside the job itself (ADR-014). Reconciliation's
-# real-client path lazily imports ERPClient/PostgresLedgerRepo/DaprDLQRepo/
+# real-client path lazily imports ERPClient/PostgresLedgerRepo/PostgresDLQRepo/
 # AdapterServiceClient from crepro_erp_adapter (see main.py _initialize_clients).
 COPY packages/crepro-common ./packages/crepro-common
 COPY services/erp_adapter ./services/erp_adapter

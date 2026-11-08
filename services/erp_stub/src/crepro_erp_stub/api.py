@@ -53,12 +53,14 @@ def list_resource(doctype: str, request: Request) -> dict:
     filters = _parse_filters(request.query_params.get("filters"))
     order_by = request.query_params.get("order_by", "")
     limit = int(request.query_params.get("limit_page_length", 0) or 0)
+    start = int(request.query_params.get("limit_start", 0) or 0)
 
     records = store.list_all(doctype)
     if filters:
         records = _apply_filters(records, filters)
     if order_by.startswith("modified"):
         records = sorted(records, key=lambda r: r.get("modified", ""))
+    records = records[start:]
     if limit:
         records = records[:limit]
 

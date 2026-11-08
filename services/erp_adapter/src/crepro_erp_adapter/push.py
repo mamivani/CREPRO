@@ -21,6 +21,7 @@ from crepro_common import EventEnvelope
 from crepro_erp_adapter.erp_client import ERPClient
 from crepro_erp_adapter.mappings import apply_entity_mapping
 from crepro_erp_adapter.models import AdapterEventType, AdapterLedgerEntry, AdapterLedgerStatus
+from crepro_erp_adapter.postgres_dlq_repo import PostgresDLQRepo
 from crepro_erp_adapter.repository import ledger_entries
 
 logger = logging.getLogger(__name__)
@@ -31,9 +32,9 @@ MAX_RETRY_ATTEMPTS = 5
 
 # Lazily-resolved singletons: built from the environment on first use so tests
 # that monkeypatch the *_internal functions below never need a real ERP or
-# Dapr state store, while a deployed container resolves real clients once.
+# database, while a deployed container resolves real clients once.
 _erp_client: ERPClient | None = None
-_dlq_repo: object | None = None
+_dlq_repo: PostgresDLQRepo | None = None
 _dlq_repo_resolved = False
 
 
@@ -52,22 +53,23 @@ def _resolve_erp_client() -> ERPClient | None:
     return _erp_client
 
 
-def _resolve_dlq_repo() -> object | None:
-    """Return a DaprDLQRepo backed by DAPR_STATE_STORE, or None if unconfigured."""
+async def _resolve_dlq_repo() -> PostgresDLQRepo | None:
+    """Return an initialized PostgresDLQRepo for CREPRO_DATABASE_URL, or None if unconfigured."""
     global _dlq_repo, _dlq_repo_resolved
     if _dlq_repo_resolved:
         return _dlq_repo
     _dlq_repo_resolved = True
-    state_store = os.getenv("DAPR_STATE_STORE")
-    if not state_store:
+    database_url = os.getenv("CREPRO_DATABASE_URL")
+    if not database_url:
         return None
     try:
-        from crepro_erp_adapter.dapr_dlq_repo import DaprDLQRepo
-        from dapr.clients import DaprClient
-
-        _dlq_repo = DaprDLQRepo(DaprClient(), state_store=state_store)
+        repo = PostgresDLQRepo(database_url)
+        await repo.initialize()
+        _dlq_repo = repo
     except Exception:
-        logger.warning("DAPR_STATE_STORE is set but the Dapr client could not be initialized", exc_info=True)
+        logger.warning(
+            "CREPRO_DATABASE_URL is set but the DLQ database pool could not be initialized", exc_info=True
+        )
         _dlq_repo = None
     return _dlq_repo
 
@@ -315,16 +317,16 @@ async def route_to_dlq(
     """
     Route a failed event to the dead-letter queue for manual remediation.
 
-    Stores the event via Dapr state management (DaprDLQRepo), which Day 13's
+    Stores the event in the dlq_events table (PostgresDLQRepo), which Day 13's
     reconciliation dlq_replay module polls directly -- not a pub/sub topic, since
     nothing subscribes to one for DLQ events; reconciliation runs on its own schedule.
-    With no DAPR_STATE_STORE configured (local dev without Dapr), the event is only
+    With no CREPRO_DATABASE_URL configured (local dev without a database), the event is only
     logged: it has already been recorded FAILED in the ledger above for audit/retry.
     """
-    dlq_repo = _resolve_dlq_repo()
+    dlq_repo = await _resolve_dlq_repo()
     if dlq_repo is None:
         logger.warning(
-            f"DAPR_STATE_STORE not configured; DLQ event not persisted: "
+            f"CREPRO_DATABASE_URL not configured; DLQ event not persisted: "
             f"event_id={event_id}, entity_id={entity_id}, reason={reason}"
         )
         return
@@ -474,14 +476,11 @@ async def process_event(
 
 async def start_subscriber(dapr_http_url: str = "http://localhost:3500") -> None:
     """
-    Superseded by the declarative Subscription resource in
-    dapr/components/subscriptions.yaml. Dapr's sidecar has no "register a
-    subscription" HTTP call to make from the app side (the API this function
-    used to call does not exist) -- declarative resources or a GET
-    /dapr/subscribe endpoint are the two real mechanisms. Kept as a no-op for
+    Superseded by the GET /dapr/subscribe endpoint in api/__init__.py, which the
+    Dapr sidecar reads at startup both locally and in Azure. Kept as a no-op for
     backward compatibility with anything still importing it.
     """
-    logger.debug("start_subscriber is a no-op; see dapr/components/subscriptions.yaml")
+    logger.debug("start_subscriber is a no-op; see GET /dapr/subscribe")
 
 
 def create_subscriber_handler():

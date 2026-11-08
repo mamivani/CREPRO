@@ -29,3 +29,13 @@ output "servicebus_namespace_name" {
 output "servicebus_erp_events_topic_id" {
   value = azurerm_servicebus_topic.erp_events.id
 }
+
+output "service_urls" {
+  description = "Ingress FQDNs of the service Container Apps (empty until deploy_services = true)."
+  value       = { for name, app in azurerm_container_app.service : name => app.ingress[0].fqdn }
+}
+
+output "application_insights_connection_string" {
+  value     = azurerm_application_insights.dev.connection_string
+  sensitive = true
+}

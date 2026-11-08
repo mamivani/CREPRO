@@ -24,6 +24,34 @@ def test_base_url_strips_trailing_slash() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_by_name_returns_record_when_found() -> None:
+    with respx.mock:
+        respx.get(f"{BASE_URL}/api/resource/Customer/CUST-001").mock(
+            return_value=httpx.Response(200, json={"data": {"name": "CUST-001"}})
+        )
+        record = await _client().get_by_name("Customer", "CUST-001")
+
+    assert record == {"name": "CUST-001"}
+
+
+@pytest.mark.asyncio
+async def test_get_by_name_returns_none_on_404() -> None:
+    with respx.mock:
+        respx.get(f"{BASE_URL}/api/resource/Customer/CUST-404").mock(return_value=httpx.Response(404))
+        record = await _client().get_by_name("Customer", "CUST-404")
+
+    assert record is None
+
+
+@pytest.mark.asyncio
+async def test_get_by_name_raises_on_server_error() -> None:
+    with respx.mock:
+        respx.get(f"{BASE_URL}/api/resource/Customer/CUST-001").mock(return_value=httpx.Response(500))
+        with pytest.raises(httpx.HTTPStatusError):
+            await _client().get_by_name("Customer", "CUST-001")
+
+
+@pytest.mark.asyncio
 async def test_get_by_platform_id_returns_record_when_found() -> None:
     with respx.mock:
         respx.get(f"{BASE_URL}/api/resource/Customer").mock(
@@ -179,6 +207,45 @@ async def test_get_modified_since_raises_on_non_http_error() -> None:
         )
         with pytest.raises(ValueError):
             await _client().get_modified_since("Customer", "2026-01-01T00:00:00")
+
+
+def _paged_handler(total: int):
+    """Fake Frappe list endpoint that honours limit_start and limit_page_length."""
+    rows = [{"name": f"CUST-{i:04d}"} for i in range(total)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        start = int(request.url.params.get("limit_start", 0))
+        size = int(request.url.params.get("limit_page_length", 20))
+        return httpx.Response(200, json={"data": rows[start : start + size]})
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_get_all_pages_past_the_page_size() -> None:
+    with respx.mock:
+        respx.get(f"{BASE_URL}/api/resource/Customer").mock(side_effect=_paged_handler(1234))
+        records = await _client().get_all("Customer", limit=500)
+
+    assert len(records) == 1234
+    assert records[0] == {"name": "CUST-0000"}
+    assert records[-1] == {"name": "CUST-1233"}
+
+
+@pytest.mark.asyncio
+async def test_get_modified_since_pages_past_the_page_size() -> None:
+    with respx.mock:
+        respx.get(f"{BASE_URL}/api/resource/Customer").mock(side_effect=_paged_handler(500))
+        records = await _client().get_modified_since("Customer", "2026-01-01T00:00:00", limit=500)
+
+    assert len(records) == 500
+
+
+@pytest.mark.asyncio
+async def test_get_all_returns_empty_list_when_no_records() -> None:
+    with respx.mock:
+        respx.get(f"{BASE_URL}/api/resource/Customer").mock(side_effect=_paged_handler(0))
+        assert await _client().get_all("Customer") == []
 
 
 @pytest.mark.asyncio

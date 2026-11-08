@@ -9,10 +9,8 @@ defaults:
   run:
     shell: bash
 
+# All jobs run on self-hosted runners: see build.yml's top-of-file comment.
 jobs:
-  # One job per package (same matrix shape as build.yml), so a coverage drop
-  # in one service doesn't hide behind a single green "tests" check and
-  # blocks only that package's branch-protection check.
   pytest:
     runs-on: self-hosted
     strategy:
@@ -63,6 +61,16 @@ jobs:
             package: crepro_erp_stub
     steps:
       - uses: actions/checkout@v7
+
+      # Self-hosted runners share one global Python install, so concurrent
+      # jobs pip-installing into it race (WinError 2 / "Could not restore").
+      # Each job gets its own venv to avoid that.
+      - name: Create isolated virtualenv
+        run: |
+          VENV="$RUNNER_TEMP/venv-$GITHUB_RUN_ID-$GITHUB_JOB-${{ matrix.target.name }}"
+          python -m venv "$VENV"
+          echo "$VENV/bin" >> "$GITHUB_PATH"
+          echo "$VENV/Scripts" >> "$GITHUB_PATH"
 
       - name: Install packages
         run: |

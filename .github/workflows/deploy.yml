@@ -9,6 +9,7 @@ defaults:
   run:
     shell: bash
 
+# All jobs run on self-hosted runners: see build.yml's top-of-file comment.
 jobs:
   deploy-stub:
     runs-on: self-hosted
