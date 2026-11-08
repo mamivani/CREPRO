@@ -195,6 +195,11 @@ resource "azurerm_container_app_environment" "dev" {
   log_analytics_workspace_id = azurerm_log_analytics_workspace.dev.id
   infrastructure_subnet_id   = azurerm_subnet.container_apps.id
   tags                       = local.tags
+
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+  }
 }
 
 # --- Service Bus (ADR-013): Standard namespace, erp-events topic only for now ---

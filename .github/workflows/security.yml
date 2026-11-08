@@ -9,6 +9,14 @@ defaults:
   run:
     shell: bash
 
+# All jobs run on self-hosted runners: see build.yml's top-of-file comment.
+#
+# sast/secret-scan use Windows-compatible direct-install steps rather than
+# their Linux-native actions (semgrep-action, gitleaks-action), which don't
+# work on Windows runners (see git history for why: semgrep-action is a
+# Docker container action, which Windows runners refuse to run at all;
+# gitleaks-action's installer is hardcoded to a `.tar.gz` asset gitleaks has
+# never published for Windows).
 jobs:
   # SAST. ADR-010/Vol 5 S16 name CodeQL specifically, but this private repo's
   # GitHub plan doesn't include GitHub Advanced Security (confirmed: the
@@ -16,19 +24,18 @@ jobs:
   # for this repository" -- the same class of plan limitation as Day 3's
   # required-reviewer environments). Semgrep is the free, no-GHAS-required
   # substitute with equivalent intent: static analysis that blocks merge.
-  #
-  # Run via the semgrep CLI directly rather than semgrep/semgrep-action: that
-  # action executes as a Docker *container action*
-  # (docker://returntocorp/semgrep-agent:v1), and the GitHub Actions runner
-  # flatly refuses to run container actions on a Windows runner
-  # ("System.NotSupportedException: Container action is only supported on
-  # Linux") -- not something any config on our side can change. semgrep itself
-  # ships a native Windows wheel, so installing and invoking the CLI directly
-  # sidesteps the action's Linux-only container requirement entirely.
   sast:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
+
+      # Per-job venv avoids pip races on the shared self-hosted runners.
+      - name: Create isolated virtualenv
+        run: |
+          VENV="$RUNNER_TEMP/venv-$GITHUB_RUN_ID-$GITHUB_JOB"
+          python -m venv "$VENV"
+          echo "$VENV/bin" >> "$GITHUB_PATH"
+          echo "$VENV/Scripts" >> "$GITHUB_PATH"
 
       - name: Install Semgrep
         run: python -m pip install semgrep
@@ -47,12 +54,10 @@ jobs:
   # the full clone (not just the diff) so a secret committed earlier and only
   # touched incidentally in a PR is still caught.
   #
-  # Installed directly rather than via gitleaks/gitleaks-action: that action's
-  # installer (src/gitleaks.js, function downloadURL) unconditionally requests
-  # a `.tar.gz` asset, but gitleaks has only ever published `.zip` for Windows
-  # (checked v8.18.1 through the current v8.24.3) -- the action cannot install
-  # on a Windows runner at all, on any pinned version. Not a self-hosted-runner
-  # config issue; it only surfaced once the fleet moved off ubuntu-latest.
+  # GITLEAKS_CONFIG points at .gitleaks.toml, which allowlists vendor/ and
+  # sample_code/ (reference copies of third-party code, not part of CREPRO --
+  # see README) -- without it, scanning their git history turns up
+  # entropy-based false positives in placeholder doctype JSON.
   secret-scan:
     runs-on: self-hosted
     env:
@@ -62,7 +67,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      # actions/checkout only registers safe.directory in a temporary git
+      # config scoped to its own step; gitleaks invokes git directly in a
+      # later step, as the NETWORK SERVICE Windows Service account, against a
+      # working directory NTFS still shows as owned by the interactive user
+      # who originally created it -- without this, git (and so gitleaks)
+      # refuses to touch it ("detected dubious ownership").
+      - name: Mark workspace as a safe git directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Install gitleaks
+        # Windows PowerShell (powershell.exe, built into the OS), not pwsh
+        # (PowerShell 7, installed as an MSIX/AppX package): AppX packages are
+        # ACL'd to the installing user, so a Windows Service account like
+        # NETWORK SERVICE can't launch pwsh.exe at all.
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
@@ -74,7 +92,7 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $installDir
 
       - name: gitleaks
-        run: gitleaks detect --source . --redact -v --report-format sarif --report-path gitleaks-results.sarif
+        run: gitleaks detect --source . --config .gitleaks.toml --redact -v --report-format sarif --report-path gitleaks-results.sarif
 
   # Container image scanning: build each image (same 12-target matrix as
   # build.yml) and scan it before it goes anywhere. Fails on CRITICAL findings
@@ -136,4 +154,3 @@ jobs:
           severity: CRITICAL
           exit-code: "1"
           ignore-unfixed: true
-

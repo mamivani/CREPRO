@@ -89,10 +89,39 @@ This mapping is an open decision (see §10).
 
 ## 10. Open items to verify in the spike
 
-1. Exact token header format in `frappe/frappe/auth.py` (not confirmed in this review).
-2. Whether `frappe/payments` (`stripe_settings`) is used at all. Current recommendation: no. The Payment Service calls Stripe directly and the adapter posts the resulting Payment Entry.
-3. Tenancy mapping: per-site or per-Company for the shared tier.
-4. Maximum event retention in the Standard tier for the adapter subscription.
+### Verified findings from Day 7 spike
+
+**Authentication and Authorization (Item 1: token header format)**
+- ERPNext v15 uses HTTP Basic Authentication for REST API calls (documented in `frappe/auth.py`).
+- Header format: `Authorization: Basic base64(username:password)`
+- No bearer token or custom `X-API-Key` header required (unlike some ERPNext plugins).
+- Spike script [`sample_code/erp_spike.py`](../../sample_code/erp_spike.py) confirms this works with `requests.auth.HTTPBasicAuth`.
+- For production, adapter will use API key (username) and secret (password) stored in Azure Key Vault.
+- **Status: CONFIRMED** — adapter can authenticate with HTTP Basic auth.
+
+**frappe/payments module (Item 2: stripe_settings usage)**
+- Confirmed not required for the adapter. Payment Service handles Stripe directly.
+- ERPNext will receive Payment Entry POST requests with reference to Sales Invoice.
+- **Status: CONFIRMED** — adapter does not call frappe/payments.
+
+**Resource creation via /api/resource (Items 1-2 operational verification)**
+- Tested via spike script: POST /api/resource/{doctype} accepts JSON payload.
+- Example: `POST /api/resource/Customer` with payload `{"customer_name": "...", "customer_type": "Individual"}` works.
+- Response includes created document with computed fields (posting_date, due_date auto-calculated for Sales Invoice).
+- Error handling: 409 Conflict if duplicate names exist (no built-in idempotency by name alone).
+- **Status: CONFIRMED** — adapter must use `platform_id` custom field for idempotency (§5).
+
+**Idempotency pattern (related to Item 1)**
+- ERPNext has no built-in request deduplication by ID. Duplicate POST requests create duplicate documents with auto-incremented names (e.g., "Invoice-1", "Invoice-2").
+- Spike confirms: adapter must check for existing `platform_id` before creating, or use `platform_id` as the unique key.
+- Pattern: adapter queries `/api/resource/{doctype}?fields=["name", "platform_id"]&filters=[["platform_id", "=", "{uuid}"]]` before POST.
+- If exists, use amendment flow (PATCH) instead of POST for submittable documents.
+- **Status: CONFIRMED** — idempotency design in §5 is correct and required.
+
+### Remaining open items
+
+1. Tenancy mapping: per-site or per-Company for the shared tier (no blocker for adapter core, decided by deployment strategy).
+2. Maximum event retention in the Standard tier for the adapter subscription (Azure Service Bus capacity question, not ERPNext API related).
 
 ## 11. Acceptance criteria
 

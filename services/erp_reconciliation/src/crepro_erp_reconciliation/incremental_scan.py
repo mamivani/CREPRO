@@ -9,6 +9,9 @@ from .models import DiscrepancyType, ReconciliationDiscrepancy, ScanReport
 
 logger = logging.getLogger(__name__)
 
+# Matches the DLQ replay cap, so both paths give up on the same entry.
+MAX_REPOST_ATTEMPTS = 2
+
 
 def _as_utc(value: datetime) -> datetime:
     """Treat naive datetimes as UTC so ERP (naive) and ledger (aware) values compare safely."""
@@ -20,18 +23,21 @@ async def run_incremental_scan(
     erp_client,
     ledger_repo,
     dlq_repo,
+    adapter_client=None,
 ) -> ScanReport:
     """
     Run incremental reconciliation scan for a tenant.
 
     Checks for recently modified ERP records and verifies ledger consistency.
-    Attempts to re-post FAILED entries and detects external modifications.
+    Re-posts FAILED entries via the adapter and detects external modifications.
 
     Args:
         tenant_id: Tenant to reconcile
         erp_client: ERP API client
         ledger_repo: Adapter ledger repository
         dlq_repo: DLQ event repository
+        adapter_client: Adapter service client used to re-post FAILED entries;
+            without it, FAILED entries are reported for manual review
 
     Returns:
         ScanReport with results
@@ -98,34 +104,6 @@ async def run_incremental_scan(
                 )
                 items_fixed += 1
 
-            elif ledger_entry.status == "FAILED":
-                # Previous attempt failed - attempt re-post
-                logger.info(f"Re-posting failed entry {ledger_entry.entity_id} for tenant {tenant_id}")
-
-                # Re-post to ERP (this would call post_to_erp_with_retry from adapter)
-                # For now, we'll mark as attempted
-                success = await _attempt_repost(
-                    tenant_id=tenant_id,
-                    entity_id=ledger_entry.entity_id,
-                    erp_client=erp_client,
-                    ledger_repo=ledger_repo,
-                    ledger_entry=ledger_entry,
-                )
-
-                if success:
-                    items_fixed += 1
-                else:
-                    discrepancy = ReconciliationDiscrepancy(
-                        id=UUID(int=0),
-                        tenant_id=tenant_id,
-                        doctype=ledger_entry.external_doctype,
-                        docid=ledger_entry.erp_docid or "Unknown",
-                        discrepancy_type=DiscrepancyType.REPOST_FAILED,
-                        detected_at=datetime.utcnow(),
-                    )
-                    discrepancies.append(discrepancy)
-                    manual_review_required += 1
-
             elif ledger_entry.status == "POSTED":
                 # Verify record still matches expected state
                 if erp_record.get("modified_at") and ledger_entry.updated_at:
@@ -142,6 +120,18 @@ async def run_incremental_scan(
                         )
                         discrepancies.append(discrepancy)
                         manual_review_required += 1
+
+        # FAILED entries never reached ERP, so they won't appear in the modified-since query above.
+        # Re-post them from the DLQ payload instead.
+        repost_fixed, repost_discrepancies = await _repost_failed_entries(
+            tenant_id=tenant_id,
+            ledger_repo=ledger_repo,
+            dlq_repo=dlq_repo,
+            adapter_client=adapter_client,
+        )
+        items_fixed += repost_fixed
+        discrepancies.extend(repost_discrepancies)
+        manual_review_required += len(repost_discrepancies)
 
         # Record scan completion for this tenant
         await ledger_repo.update_last_incremental_scan(tenant_id, datetime.utcnow())
@@ -173,31 +163,90 @@ async def run_incremental_scan(
     return report
 
 
+async def _repost_failed_entries(
+    tenant_id: UUID,
+    ledger_repo,
+    dlq_repo,
+    adapter_client,
+) -> tuple[int, list[ReconciliationDiscrepancy]]:
+    """Re-post every FAILED ledger entry for a tenant.
+
+    Returns the number recovered and a REPOST_FAILED discrepancy for each one that wasn't.
+    """
+    recovered = 0
+    discrepancies: list[ReconciliationDiscrepancy] = []
+
+    failed_entries = await ledger_repo.get_all(tenant_id, ["FAILED"])
+    for entry in failed_entries:
+        if await _attempt_repost(tenant_id, entry, ledger_repo, dlq_repo, adapter_client):
+            recovered += 1
+            continue
+        discrepancies.append(
+            ReconciliationDiscrepancy(
+                id=UUID(int=0),
+                tenant_id=tenant_id,
+                doctype=entry.external_doctype,
+                docid=entry.erp_docid or "Unknown",
+                discrepancy_type=DiscrepancyType.REPOST_FAILED,
+                detected_at=datetime.utcnow(),
+            )
+        )
+
+    return recovered, discrepancies
+
+
 async def _attempt_repost(
     tenant_id: UUID,
-    entity_id: UUID,
-    erp_client,
+    entry,
     ledger_repo,
-    ledger_entry,
+    dlq_repo,
+    adapter_client,
 ) -> bool:
     """
-    Attempt to re-post a failed entry to ERP.
+    Re-post one FAILED ledger entry using the payload from its latest DLQ event.
 
-    Args:
-        tenant_id: Tenant ID
-        entity_id: Entity ID
-        erp_client: ERP client
-        ledger_repo: Ledger repository
-        ledger_entry: The failed ledger entry
+    The adapter's /api/repost is idempotent (it checks platform_id first), so a
+    repost cannot create a duplicate ERP document.
 
     Returns:
-        True if re-post succeeded, False otherwise
+        True if the entry was re-posted and the ledger updated, False otherwise
     """
-    try:
-        # In production, this would reconstruct the original payload from our domain model
-        # For now, we'll just mark as attempted
-        logger.warning(f"Repost not fully implemented for entity {entity_id}; marking for manual review")
+    if adapter_client is None or dlq_repo is None:
+        logger.warning(f"Cannot re-post entity {entry.entity_id}: no adapter client or DLQ repo configured")
         return False
+
+    if entry.attempts >= MAX_REPOST_ATTEMPTS:
+        logger.warning(
+            f"Entity {entry.entity_id} reached {MAX_REPOST_ATTEMPTS} re-post attempts; needs manual review"
+        )
+        return False
+
+    try:
+        dlq_event = await dlq_repo.get_latest_for_entity(tenant_id, entry.entity_id)
+        if dlq_event is None:
+            logger.warning(f"No DLQ payload found for FAILED entity {entry.entity_id}")
+            return False
+
+        success, erp_docid = await adapter_client.repost_entity(
+            tenant_id, entry.entity_id, entry.external_doctype, dlq_event.original_payload
+        )
+        attempts = entry.attempts + 1
+
+        if not success:
+            await ledger_repo.update(entry.id, attempts=attempts, last_error="Re-post rejected by adapter")
+            return False
+
+        await ledger_repo.update(
+            entry.id,
+            status="POSTED",
+            erp_docid=erp_docid or entry.erp_docid,
+            attempts=attempts,
+            last_error=None,
+        )
+        await dlq_repo.update(dlq_event.id, status="RECOVERED", last_retry_at=datetime.utcnow())
+        logger.info(f"Re-posted FAILED entity {entry.entity_id} for tenant {tenant_id}")
+        return True
+
     except Exception as e:
-        logger.error(f"Error re-posting entity {entity_id}: {e}")
+        logger.error(f"Error re-posting entity {entry.entity_id}: {e}")
         return False

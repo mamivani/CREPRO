@@ -80,6 +80,10 @@ class MockDLQRepo:
         """Get pending DLQ events."""
         return []
 
+    async def get_latest_for_entity(self, tenant_id, entity_id):
+        """Get the latest DLQ event for an entity."""
+        return None
+
     async def update(self, event_id, **kwargs):
         """Update a DLQ event."""
         pass
@@ -179,6 +183,7 @@ async def run_reconciliation_job():
                 erp_client=erp_client,
                 ledger_repo=ledger_repo,
                 dlq_repo=dlq_repo,
+                adapter_client=adapter_client,
             )
             logger.info(f"Incremental scan report: {report}")
 

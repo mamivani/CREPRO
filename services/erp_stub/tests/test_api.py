@@ -86,6 +86,17 @@ def test_list_respects_limit_page_length() -> None:
     assert len(response.json()["data"]) == 2
 
 
+def test_list_respects_limit_start_for_paging() -> None:
+    client = _client()
+    for i in range(5):
+        client.post("/api/resource/Customer", json={"customer_name": f"C{i}"})
+
+    response = client.get("/api/resource/Customer", params={"limit_start": 3, "limit_page_length": 2})
+
+    names = [r["customer_name"] for r in response.json()["data"]]
+    assert names == ["C3", "C4"]
+
+
 def test_list_filters_by_equality() -> None:
     client = _client()
     created = client.post(

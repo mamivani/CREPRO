@@ -165,13 +165,40 @@ class ERPClient:
             logger.error(f"Error updating {doctype} {docid}: {exc}")
             raise
 
+    async def _fetch_all_pages(
+        self,
+        doctype: str,
+        params: dict[str, Any],
+        page_size: int,
+    ) -> list[dict[str, Any]]:
+        """Page through a list endpoint using limit_start/limit_page_length.
+
+        Stops at the first short page, so results are never silently capped.
+        """
+        url = f"{self.base_url}/api/resource/{doctype}"
+        records: list[dict[str, Any]] = []
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            start = 0
+            while True:
+                response = await client.get(
+                    url,
+                    params={**params, "limit_start": start, "limit_page_length": page_size},
+                    headers=self._get_headers(),
+                )
+                response.raise_for_status()
+                page = response.json().get("data", [])
+                records.extend(page)
+                if len(page) < page_size:
+                    return records
+                start += page_size
+
     async def get_all(self, doctype: str, limit: int = 500) -> list[dict[str, Any]]:
         """
-        Get all records of a document type.
+        Get all records of a document type, paging through the ERP.
 
         Args:
             doctype: Document type
-            limit: Max records to fetch
+            limit: Page size used for each request
 
         Returns:
             List of record dicts
@@ -181,16 +208,7 @@ class ERPClient:
             Exception: On other errors
         """
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                url = f"{self.base_url}/api/resource/{doctype}"
-                response = await client.get(
-                    url,
-                    params={"limit_page_length": limit, "fields": '["*"]'},
-                    headers=self._get_headers(),
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data.get("data", [])
+            return await self._fetch_all_pages(doctype, {"fields": '["*"]'}, limit)
 
         except httpx.HTTPError as exc:
             logger.error(f"HTTP error fetching all {doctype}: {exc}")
@@ -206,12 +224,12 @@ class ERPClient:
         limit: int = 500,
     ) -> list[dict[str, Any]]:
         """
-        Get records modified since a timestamp.
+        Get all records modified since a timestamp, paging through the ERP.
 
         Args:
             doctype: Document type
             since: ISO format timestamp (e.g., "2026-11-03T15:00:00")
-            limit: Max records to fetch
+            limit: Page size used for each request
 
         Returns:
             List of modified record dicts
@@ -221,23 +239,13 @@ class ERPClient:
             Exception: On other errors
         """
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                url = f"{self.base_url}/api/resource/{doctype}"
-                # Query by modified timestamp
-                filters = f'[["modified",">=","{since}"]]'
-                response = await client.get(
-                    url,
-                    params={
-                        "filters": filters,
-                        "fields": '["*"]',
-                        "limit_page_length": limit,
-                        "order_by": "modified asc",
-                    },
-                    headers=self._get_headers(),
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data.get("data", [])
+            filters = f'[["modified",">=","{since}"]]'
+            params = {
+                "filters": filters,
+                "fields": '["*"]',
+                "order_by": "modified asc",
+            }
+            return await self._fetch_all_pages(doctype, params, limit)
 
         except httpx.HTTPError as exc:
             logger.error(f"HTTP error fetching modified {doctype}: {exc}")

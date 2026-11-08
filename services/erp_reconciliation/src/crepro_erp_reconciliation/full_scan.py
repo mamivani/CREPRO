@@ -105,10 +105,12 @@ async def run_full_scan(
                     discrepancies.append(discrepancy)
                     manual_review_required += 1
 
-        # Step 2: Check all ledger entries have corresponding ERP records
+        # Step 2: Check POSTED ledger entries still have corresponding ERP records.
+        # FAILED entries never confirmed an ERP write, so a missing record is expected;
+        # the incremental scan's repost pass handles them.
         all_ledger_entries = await ledger_repo.get_all(
             tenant_id=tenant_id,
-            statuses=["POSTED", "FAILED"],
+            statuses=["POSTED"],
         )
 
         for ledger_entry in all_ledger_entries:
