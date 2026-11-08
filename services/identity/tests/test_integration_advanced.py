@@ -8,7 +8,6 @@ from uuid import uuid4
 import pytest
 from crepro_common import TokenType, decode_token
 from crepro_identity.auth import (
-    get_apple_provider,
     get_google_provider,
     get_microsoft_provider,
     get_tenant_directory,
@@ -72,9 +71,7 @@ class TestMultiProviderCrossSignUp:
 
         # Register via OAuth
         oauth_response = client.post("/api/v1/auth/microsoft", json={"id_token": "token1"})
-        oauth_user_id = decode_token(
-            oauth_response.json()["access_token"], expected_type=TokenType.ACCESS
-        ).user_id
+        decode_token(oauth_response.json()["access_token"], expected_type=TokenType.ACCESS)
 
         # Try to register local account with same email
         local_response = client.post(
@@ -147,7 +144,9 @@ class TestLocalAuthenticationEdgeCases:
         assert response.status_code == 201
 
         # Can login with empty password
-        login_response = client.post("/api/v1/auth/local", json={"email": "empty@example.com", "password": ""})
+        login_response = client.post(
+            "/api/v1/auth/local", json={"email": "empty@example.com", "password": ""}
+        )
         assert login_response.status_code == 200
 
     def test_register_with_very_long_password_accepted(self, client, tenant_id) -> None:
@@ -169,7 +168,9 @@ class TestLocalAuthenticationEdgeCases:
         )
 
         # Try to login with different case
-        response = client.post("/api/v1/auth/local", json={"email": "user@example.com", "password": "password123"})
+        response = client.post(
+            "/api/v1/auth/local", json={"email": "user@example.com", "password": "password123"}
+        )
 
         # Should fail (email not found due to case mismatch)
         assert response.status_code == 401
@@ -191,7 +192,7 @@ class TestCrossTenantisolation:
 
     def test_tenant_a_cannot_refresh_token_from_tenant_b(self, client) -> None:
         """Refresh token from tenant B cannot be used to refresh in tenant A context."""
-        tenant_a, tenant_b = uuid4(), uuid4()
+        tenant_a, _tenant_b = uuid4(), uuid4()
 
         # Register user in tenant A
         app.dependency_overrides[get_tenant_directory] = lambda: _FakeDirectory(tenant_a)

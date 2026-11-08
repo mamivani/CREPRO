@@ -1,11 +1,9 @@
 """Comprehensive tests for property service: unit, integration, contract, and cross-tenant isolation."""
 
-import pytest
-from uuid import uuid4, UUID
-from datetime import datetime
+from uuid import UUID, uuid4
 
+import pytest
 from crepro_property.main import app
-from crepro_property.models import Property, Unit, PropertyStatus
 from crepro_property.repository import properties, units
 from fastapi.testclient import TestClient
 
@@ -34,7 +32,7 @@ class TestPropertyCRUD:
         """Create a property with required fields only."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/properties",
             json={
@@ -48,7 +46,7 @@ class TestPropertyCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == "Downtown Apartments"
@@ -60,7 +58,7 @@ class TestPropertyCRUD:
         """Create a property with all optional fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/properties",
             json={
@@ -79,7 +77,7 @@ class TestPropertyCRUD:
             },
             headers=_headers(tenant_id),
         )
-        
+
         assert response.status_code == 201
         data = response.json()
         assert data["description"] == "Premium waterfront property"
@@ -92,7 +90,7 @@ class TestPropertyCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         # Create
         create_response = client.post(
             "/api/v1/properties",
@@ -108,7 +106,7 @@ class TestPropertyCRUD:
             headers=headers,
         )
         property_id = create_response.json()["id"]
-        
+
         # Retrieve
         get_response = client.get(f"/api/v1/properties/{property_id}", headers=headers)
         assert get_response.status_code == 200
@@ -120,7 +118,7 @@ class TestPropertyCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         # Create
         create_response = client.post(
             "/api/v1/properties",
@@ -136,7 +134,7 @@ class TestPropertyCRUD:
             headers=headers,
         )
         property_id = create_response.json()["id"]
-        
+
         # Update
         update_response = client.patch(
             f"/api/v1/properties/{property_id}",
@@ -158,7 +156,7 @@ class TestPropertyCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         # Create
         create_response = client.post(
             "/api/v1/properties",
@@ -174,11 +172,11 @@ class TestPropertyCRUD:
             headers=headers,
         )
         property_id = create_response.json()["id"]
-        
+
         # Delete
         delete_response = client.delete(f"/api/v1/properties/{property_id}", headers=headers)
         assert delete_response.status_code == 204
-        
+
         # Verify gone
         get_response = client.get(f"/api/v1/properties/{property_id}", headers=headers)
         assert get_response.status_code == 404
@@ -188,7 +186,7 @@ class TestPropertyCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         # Create 3 properties
         property_ids = []
         for i in range(3):
@@ -206,7 +204,7 @@ class TestPropertyCRUD:
                 headers=headers,
             )
             property_ids.append(response.json()["id"])
-        
+
         # List
         list_response = client.get("/api/v1/properties", headers=headers)
         assert list_response.status_code == 200
@@ -223,7 +221,7 @@ class TestUnitCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         # Create parent property
         prop_response = client.post(
             "/api/v1/properties",
@@ -239,7 +237,7 @@ class TestUnitCRUD:
             headers=headers,
         )
         property_id = UUID(prop_response.json()["id"])
-        
+
         # Create unit
         unit_response = client.post(
             "/api/v1/units",
@@ -253,7 +251,7 @@ class TestUnitCRUD:
             },
             headers=headers,
         )
-        
+
         assert unit_response.status_code == 201
         unit = unit_response.json()
         assert unit["property_id"] == str(property_id)
@@ -267,7 +265,7 @@ class TestUnitCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         # Create parent property
         prop_response = client.post(
             "/api/v1/properties",
@@ -283,7 +281,7 @@ class TestUnitCRUD:
             headers=headers,
         )
         property_id = UUID(prop_response.json()["id"])
-        
+
         # Create detailed unit
         unit_response = client.post(
             "/api/v1/units",
@@ -307,7 +305,7 @@ class TestUnitCRUD:
             },
             headers=headers,
         )
-        
+
         assert unit_response.status_code == 201
         unit = unit_response.json()
         assert unit["bedrooms"] == 2
@@ -322,7 +320,7 @@ class TestUnitCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         # Setup
         prop_response = client.post(
             "/api/v1/properties",
@@ -338,7 +336,7 @@ class TestUnitCRUD:
             headers=headers,
         )
         property_id = UUID(prop_response.json()["id"])
-        
+
         unit_response = client.post(
             "/api/v1/units",
             json={
@@ -352,7 +350,7 @@ class TestUnitCRUD:
             headers=headers,
         )
         unit_id = unit_response.json()["id"]
-        
+
         # Get
         get_response = client.get(f"/api/v1/units/{unit_id}", headers=headers)
         assert get_response.status_code == 200
@@ -363,7 +361,7 @@ class TestUnitCRUD:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         # Create property
         prop_response = client.post(
             "/api/v1/properties",
@@ -379,7 +377,7 @@ class TestUnitCRUD:
             headers=headers,
         )
         property_id = UUID(prop_response.json()["id"])
-        
+
         # Create 5 units
         for i in range(5):
             client.post(
@@ -394,7 +392,7 @@ class TestUnitCRUD:
                 },
                 headers=headers,
             )
-        
+
         # List all units
         list_response = client.get("/api/v1/units", headers=headers)
         assert list_response.status_code == 200
@@ -409,7 +407,7 @@ class TestCrossTenantisolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         # Tenant A creates property
         response = client.post(
             "/api/v1/properties",
@@ -425,7 +423,7 @@ class TestCrossTenantisolation:
             headers=_headers(tenant_a),
         )
         property_id = response.json()["id"]
-        
+
         # Tenant B tries to read
         get_response = client.get(
             f"/api/v1/properties/{property_id}",
@@ -438,7 +436,7 @@ class TestCrossTenantisolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         # Tenant A creates 2 properties
         for i in range(2):
             client.post(
@@ -454,7 +452,7 @@ class TestCrossTenantisolation:
                 },
                 headers=_headers(tenant_a),
             )
-        
+
         # Tenant B creates 1 property
         client.post(
             "/api/v1/properties",
@@ -469,11 +467,11 @@ class TestCrossTenantisolation:
             },
             headers=_headers(tenant_b),
         )
-        
+
         # Each tenant lists their own
         a_list = client.get("/api/v1/properties", headers=_headers(tenant_a)).json()
         b_list = client.get("/api/v1/properties", headers=_headers(tenant_b)).json()
-        
+
         assert len(a_list) == 2
         assert len(b_list) == 1
         assert all(p["tenant_id"] == str(tenant_a) for p in a_list)
@@ -484,7 +482,7 @@ class TestCrossTenantisolation:
         client = TestClient(app)
         tenant_a = uuid4()
         tenant_b = uuid4()
-        
+
         # Tenant A creates property and unit
         prop_response = client.post(
             "/api/v1/properties",
@@ -500,7 +498,7 @@ class TestCrossTenantisolation:
             headers=_headers(tenant_a),
         )
         property_id = UUID(prop_response.json()["id"])
-        
+
         unit_response = client.post(
             "/api/v1/units",
             json={
@@ -514,7 +512,7 @@ class TestCrossTenantisolation:
             headers=_headers(tenant_a),
         )
         unit_id = unit_response.json()["id"]
-        
+
         # Tenant B tries to access
         get_response = client.get(
             f"/api/v1/units/{unit_id}",
@@ -530,7 +528,7 @@ class TestPropertyContractSchema:
         """Property response includes all defined fields."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         response = client.post(
             "/api/v1/properties",
             json={
@@ -544,7 +542,7 @@ class TestPropertyContractSchema:
             },
             headers=_headers(tenant_id),
         )
-        
+
         data = response.json()
         # Required fields
         assert "id" in data
@@ -565,7 +563,7 @@ class TestPropertyContractSchema:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         prop_response = client.post(
             "/api/v1/properties",
             json={
@@ -580,7 +578,7 @@ class TestPropertyContractSchema:
             headers=headers,
         )
         property_id = UUID(prop_response.json()["id"])
-        
+
         unit_response = client.post(
             "/api/v1/units",
             json={
@@ -593,7 +591,7 @@ class TestPropertyContractSchema:
             },
             headers=headers,
         )
-        
+
         data = unit_response.json()
         # Required fields
         assert "id" in data
@@ -612,7 +610,7 @@ class TestPropertyEdgeCases:
     def test_create_property_missing_required_field(self):
         """Property creation fails without required fields."""
         client = TestClient(app)
-        
+
         response = client.post(
             "/api/v1/properties",
             json={
@@ -627,7 +625,7 @@ class TestPropertyEdgeCases:
         """Unit creation fails if parent property doesn't exist (in real DB; in-memory doesn't enforce)."""
         client = TestClient(app)
         tenant_id = uuid4()
-        
+
         # This test documents current behavior (in-memory doesn't validate FK)
         # In a real DB implementation, this would return 404 or 422
         response = client.post(
@@ -648,7 +646,7 @@ class TestPropertyEdgeCases:
     def test_get_nonexistent_property(self):
         """Getting a non-existent property returns 404."""
         client = TestClient(app)
-        
+
         response = client.get(
             f"/api/v1/properties/{uuid4()}",
             headers=_headers(),
@@ -660,7 +658,7 @@ class TestPropertyEdgeCases:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         # Create
         create_response = client.post(
             "/api/v1/properties",
@@ -678,14 +676,14 @@ class TestPropertyEdgeCases:
         )
         property_id = create_response.json()["id"]
         original = create_response.json()
-        
+
         # Update only status
         patch_response = client.patch(
             f"/api/v1/properties/{property_id}",
             json={"status": "sold"},
             headers=headers,
         )
-        
+
         assert patch_response.status_code == 200
         updated = patch_response.json()
         assert updated["status"] == "sold"
@@ -697,7 +695,7 @@ class TestPropertyEdgeCases:
         client = TestClient(app)
         tenant_id = uuid4()
         headers = _headers(tenant_id)
-        
+
         # Create and delete
         create_response = client.post(
             "/api/v1/properties",
@@ -713,9 +711,9 @@ class TestPropertyEdgeCases:
             headers=headers,
         )
         property_id = create_response.json()["id"]
-        
+
         client.delete(f"/api/v1/properties/{property_id}", headers=headers)
-        
+
         # Try to delete again
         response = client.delete(f"/api/v1/properties/{property_id}", headers=headers)
         assert response.status_code == 404

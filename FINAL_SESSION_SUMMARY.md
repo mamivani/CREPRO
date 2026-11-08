@@ -227,24 +227,18 @@ def reset_repositories():
 ### 2. Multi-Tenant Headers Helper
 ```python
 def _headers(tenant_id: str, token: str) -> dict:
-    return {
-        "X-Tenant-ID": tenant_id,
-        "Authorization": f"Bearer {token}"
-    }
+    return {"X-Tenant-ID": tenant_id, "Authorization": f"Bearer {token}"}
 ```
 
 ### 3. Cross-Tenant Isolation Test
 ```python
 def test_tenant_b_cannot_access_tenant_a_property():
     # Tenant A creates
-    resp_a = client.post("/api/v1/properties", 
-                         json=prop_data, 
-                         headers=_headers("a", token_a))
+    resp_a = client.post("/api/v1/properties", json=prop_data, headers=_headers("a", token_a))
     prop_id = resp_a.json()["id"]
-    
+
     # Tenant B tries to access
-    resp_b = client.get(f"/api/v1/properties/{prop_id}",
-                        headers=_headers("b", token_b))
+    resp_b = client.get(f"/api/v1/properties/{prop_id}", headers=_headers("b", token_b))
     assert resp_b.status_code == 404
 ```
 

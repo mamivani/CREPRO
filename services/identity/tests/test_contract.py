@@ -4,8 +4,6 @@ Validates that the Identity service API conforms to its OpenAPI specification
 and can be consumed by other services following the contract.
 """
 
-from uuid import uuid4
-
 import pytest
 from crepro_identity.main import app
 from fastapi.testclient import TestClient

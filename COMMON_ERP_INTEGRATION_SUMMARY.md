@@ -143,40 +143,37 @@ Isolation verified by tests: Tenant A cannot read Tenant B's GL
 def create_property(prop: PropertyCreate, tenant_id: UUID):
     property = Property(...)
     properties.create(property)
-    
+
     # Publish event
     event = PropertyCreated(
-        id=uuid4(),
-        tenant_id=tenant_id,
-        property_id=property.id,
-        property_name=property.name,
-        timestamp=now()
+        id=uuid4(), tenant_id=tenant_id, property_id=property.id, property_name=property.name, timestamp=now()
     )
     outbox.create(OutboxRow(event))
-    
+
     return property
+
 
 # Event Subscriber (Day 11)
 @dapr_subscription("property-events")
 def on_property_created(event: PropertyCreated):
     # Get tenant's CommonERP Company
     company = get_company_for_tenant(event.tenant_id)
-    
+
     # Post Customer to CommonERP
     customer = {
         "doctype": "Customer",
         "customer_name": event.property_name,
         "customer_type": "Individual",
-        "company": company.name
+        "company": company.name,
     }
-    
+
     # Idempotency: check event id + hash
     if event_already_processed(event):
         return
-    
+
     # POST to CommonERP
     resp = common_erp_client.post("/api/resource/Customer", customer)
-    
+
     # Mark event processed
     mark_event_processed(event)
 ```

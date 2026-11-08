@@ -12,7 +12,7 @@ from crepro_common import (
     TenantScopedEntity,
 )
 from crepro_common.config import Settings
-from crepro_common.security import issue_token_pair, decode_token, InvalidTokenError, TokenType
+from crepro_common.security import InvalidTokenError, TokenType, decode_token, issue_token_pair
 from crepro_common.tenancy import TenantContext
 
 
