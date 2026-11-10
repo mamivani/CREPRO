@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiClient } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 
-export default function CallbackPage() {
+function CallbackContent() {
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,4 +65,21 @@ export default function CallbackPage() {
   }
 
   return null;
+}
+
+export default function CallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold mb-4">Authenticating...</h1>
+            <p className="text-muted-foreground">Please wait while we complete your login.</p>
+          </div>
+        </div>
+      }
+    >
+      <CallbackContent />
+    </Suspense>
+  );
 }
