@@ -3,9 +3,9 @@
     "collect": {
       "url": ["http://localhost:3000"],
       "numberOfRuns": 1,
-      "settings": {
-        "configPath": "apps/web/lighthouse-config.js"
-      }
+      "startServerCommand": "npm run start",
+      "startServerReadyPattern": "Ready in",
+      "startServerReadyTimeout": 30000
     },
     "upload": {
       "target": "filesystem",
