@@ -9,14 +9,13 @@ test.describe('Dashboard - Invoices', () => {
 
   test('should display invoice list', async ({ page }) => {
     await page.goto('/dashboard/invoices');
-    // Should show either empty state or invoice cards
+    // Should show either empty state or invoice cards once loading resolves.
+    // Use an auto-retrying assertion instead of an immediate check to avoid
+    // racing the async fetch (loading -> empty/list) that happens on mount.
     const emptyState = page.locator('text=No invoices found');
     const invoiceCard = page.locator('[data-testid*="invoice-card-"]');
 
-    const isEmptyVisible = await emptyState.isVisible().catch(() => false);
-    const hasInvoices = await invoiceCard.count();
-
-    expect(isEmptyVisible || hasInvoices > 0).toBe(true);
+    await expect(emptyState.or(invoiceCard.first())).toBeVisible();
   });
 
   test('should display invoice status badges', async ({ page }) => {
