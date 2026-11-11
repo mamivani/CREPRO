@@ -154,6 +154,7 @@ npm run build  # Production build
 def calculate_next_rent(current_rent: float, increment_pct: float) -> float:
     return current_rent * (1 + increment_pct / 100)
 
+
 def apply_increment_to_lease(lease: Lease, effective_date: date):
     new_rent = calculate_next_rent(lease.rent_amount, lease.increment_percent)
     lease.rent_amount = new_rent
@@ -180,7 +181,7 @@ def generate_lease_invoices(lease: Lease, start_date: date, end_date: date):
             due_date=current_date + timedelta(days=15),
             amount=lease.rent_amount,
             period_start=current_date,
-            period_end=current_date + timedelta(days=30)
+            period_end=current_date + timedelta(days=30),
         )
         invoices.append(invoice)
         current_date += timedelta(days=30)
@@ -256,10 +257,7 @@ def generate_lease_invoices(lease: Lease, start_date: date, end_date: date):
 **Sample Logic:**
 ```python
 def calculate_utility_charge(
-    current_reading: float,
-    previous_reading: float,
-    rate_per_unit: float,
-    minimum_charge: float = 0
+    current_reading: float, previous_reading: float, rate_per_unit: float, minimum_charge: float = 0
 ) -> float:
     usage = max(0, current_reading - previous_reading)
     charge = usage * rate_per_unit
