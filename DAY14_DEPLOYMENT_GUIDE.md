@@ -4,6 +4,12 @@
 > torn down -- it duplicated the project's real baseline infra (`infra/terraform/environments/dev`,
 > resource group `rg-crepro-dev`). Future deployment work should extend that Terraform instead of
 > re-running Phase 3 as written here.
+>
+> **Update:** steps 5-7 of section 3.2 (build/push images, `terraform apply -var deploy_services=true`,
+> smoke tests) now run automatically in [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
+> on every push to `main` (i.e. after a PR merges) -- including `apps/web`, the frontend, deployed as
+> `ca-crepro-web`. The manual steps below are still accurate for a one-off/local deploy (e.g. from a
+> laptop with `az login`), but routine deployment no longer needs them run by hand.
 
 ## Overview
 
