@@ -187,6 +187,16 @@ resource "azurerm_role_assignment" "acr_push_deployer" {
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
+# Azure RBAC rejects a second role assignment for the same (principal, role,
+# scope) tuple with a 409 RoleAssignmentExists -- this exact assignment was
+# already created (the deploy workflow's first `apply` run hit that 409
+# because this resource wasn't yet in state), so absorb the existing
+# assignment into state instead of trying to create a duplicate.
+import {
+  to = azurerm_role_assignment.acr_push_deployer
+  id = "${azurerm_container_registry.dev.id}/providers/Microsoft.Authorization/roleAssignments/e4eae575-5874-4538-b9b2-42ab92cf5d27"
+}
+
 # --- Container Apps environment (no apps yet: Day 14 deploys the services) ---
 
 resource "azurerm_log_analytics_workspace" "dev" {
