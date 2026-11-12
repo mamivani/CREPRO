@@ -131,6 +131,8 @@ jobs:
             dockerfile: services/erp_reconciliation/Dockerfile
           - name: erp_stub
             dockerfile: services/erp_stub/Dockerfile
+          - name: web
+            dockerfile: apps/web/Dockerfile
     steps:
       - uses: actions/checkout@v7
 

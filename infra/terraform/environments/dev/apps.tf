@@ -311,6 +311,74 @@ resource "azurerm_container_app" "erp_stub" {
   ]
 }
 
+# --- Frontend (apps/web, Next.js) ---
+# Always external (it's the public site), unlike the backend services whose
+# external ingress is toggleable via var.services_external_ingress. No Dapr
+# sidecar: the browser/Next.js server calls the backend over plain HTTPS.
+# NEXT_PUBLIC_API_URL/NEXT_PUBLIC_IDENTITY_URL are baked into the image at
+# build time (apps/web/Dockerfile build args), not set here as env vars --
+# Next.js inlines NEXT_PUBLIC_* at build, so a runtime env var here would be
+# silently ignored.
+resource "azurerm_container_app" "web" {
+  count = var.deploy_services ? 1 : 0
+
+  name                         = "ca-crepro-web"
+  resource_group_name          = azurerm_resource_group.dev.name
+  container_app_environment_id = azurerm_container_app_environment.dev.id
+  revision_mode                = "Single"
+  workload_profile_name        = "Consumption"
+  tags                         = local.tags
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.apps[0].id]
+  }
+
+  registry {
+    server   = azurerm_container_registry.dev.login_server
+    identity = azurerm_user_assigned_identity.apps[0].id
+  }
+
+  ingress {
+    external_enabled = true
+    target_port      = 3000
+    transport        = "http"
+
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
+
+  template {
+    min_replicas = 1
+    max_replicas = 2
+
+    container {
+      name   = "web"
+      image  = "${azurerm_container_registry.dev.login_server}/crepro-web:${var.image_tag}"
+      cpu    = 0.25
+      memory = "0.5Gi"
+
+      liveness_probe {
+        transport = "HTTP"
+        path      = "/api/health"
+        port      = 3000
+      }
+
+      readiness_probe {
+        transport = "HTTP"
+        path      = "/api/health"
+        port      = 3000
+      }
+    }
+  }
+
+  depends_on = [
+    azurerm_role_assignment.apps_acr_pull,
+  ]
+}
+
 # --- Reconciliation jobs (ADR: Container Apps Jobs on cron, no HTTP ingress) ---
 # Jobs do not run a Dapr sidecar, so DLQ events are read from the platform database
 # (dlq_events table) via DATABASE_URL, not through Dapr state.

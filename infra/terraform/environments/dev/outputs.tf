@@ -22,6 +22,26 @@ output "container_app_environment_id" {
   value = azurerm_container_app_environment.dev.id
 }
 
+output "container_app_environment_default_domain" {
+  description = "Stable once the environment exists; lets the deploy workflow compute backend FQDNs (ca-crepro-<service>.<this>) to bake into the web image before deploy_services=true has ever run."
+  value       = azurerm_container_app_environment.dev.default_domain
+}
+
+output "web_url" {
+  description = "Public URL of the frontend Container App (empty until deploy_services = true)."
+  value       = try("https://${azurerm_container_app.web[0].ingress[0].fqdn}", "")
+}
+
+output "identity_health_url" {
+  description = "Identity service health endpoint, for the deploy workflow's smoke test (empty until deploy_services = true)."
+  value       = try("https://${azurerm_container_app.service["identity"].ingress[0].fqdn}/health", "")
+}
+
+output "property_health_url" {
+  description = "Property service health endpoint, for the deploy workflow's smoke test (empty until deploy_services = true)."
+  value       = try("https://${azurerm_container_app.service["property"].ingress[0].fqdn}/health", "")
+}
+
 output "servicebus_namespace_name" {
   value = azurerm_servicebus_namespace.dev.name
 }

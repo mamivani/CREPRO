@@ -13,3 +13,10 @@ __pycache__/
 # Docs and non-runtime assets don't need to be in any service image.
 docs/
 infra/
+
+# apps/web (Next.js) build artifacts and deps: never part of any build
+# context. Dependencies are reinstalled with npm ci inside the Dockerfile.
+**/node_modules/
+**/.next/
+apps/web/playwright-report/
+apps/web/test-results/

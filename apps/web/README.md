@@ -302,6 +302,16 @@ GitHub Actions workflow (`.github/workflows/e2e.yml`):
 - Lighthouse performance audit
 - Artifacts: test reports, videos on failure
 
+## Deployment
+
+Runs as the `ca-crepro-web` Container App (`infra/terraform/environments/dev/apps.tf`), built from
+`apps/web/Dockerfile` (multi-stage, `output: 'standalone'`). `NEXT_PUBLIC_API_URL` and
+`NEXT_PUBLIC_IDENTITY_URL` are Docker build args, not Container App env vars: Next.js inlines
+`NEXT_PUBLIC_*` into the bundle at build time, so they have to be known before the image is built,
+not at container start. `.github/workflows/deploy.yml` computes them from the Container Apps
+Environment's stable default domain and builds/pushes/deploys the image automatically on every push
+to `main`. `/api/health` (`src/app/api/health/route.ts`) is the liveness/readiness probe target.
+
 ## Development Guidelines
 
 ### Code Style

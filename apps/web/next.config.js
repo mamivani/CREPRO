@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Produces a self-contained .next/standalone server (only the deps the
+  // build actually traced) for the Docker image -- see apps/web/Dockerfile.
+  output: 'standalone',
   typescript: {
     // Reduce false positives from unused imports on components-only modules
     tsconfigPath: './tsconfig.json',

@@ -2,21 +2,219 @@ name: Deploy
 
 on:
   push:
-    branches: [main, develop]
-  pull_request:
+    branches: [main]
 
-defaults:
-  run:
-    shell: bash
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_USE_OIDC: "true"
+  TF_IN_AUTOMATION: "true"
 
 # All jobs run on self-hosted runners: see build.yml's top-of-file comment.
+#
+# Only triggers on push to main, i.e. after a PR merges -- the PR review is
+# the approval gate here, unlike terraform.yml's apply (workflow_dispatch
+# only, a human explicitly running it is *that* workflow's approval gate).
+# The two are deliberately different: terraform.yml is for infra-only
+# changes an operator wants to review as a plan first; this is the "ship the
+# app" pipeline requested to run automatically on every merge.
+#
+# Four phases:
+#   1. prepare: reads the registry login server and the Container Apps
+#      Environment's default_domain from *existing* state (no apply -- the
+#      environment and registry are foundation resources that already exist,
+#      so this is just a state read). default_domain is stable once the
+#      environment exists, so the web image's backend URLs (build args,
+#      baked in at build time -- see apps/web/Dockerfile) can be computed
+#      before deploy_services has ever been applied with this commit's images.
+#   2. build-and-push: every crepro-* image, tagged with this commit's SHA,
+#      pushed to ACR. Must finish before apply, or the Container Apps it
+#      updates/creates would reference an image that doesn't exist yet.
+#   3. apply: terraform apply -var deploy_services=true -var image_tag=<sha>.
+#      Deliberately never applies deploy_services=false in this workflow:
+#      the dev environment's steady state already has services deployed, and
+#      the services for_each produces an empty map when deploy_services is
+#      false, which would destroy every Container App and job that exists.
+#   4. smoke-test: confirms the new revisions actually came up healthy.
 jobs:
-  deploy-stub:
+  prepare:
     runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
+        working-directory: infra/terraform/environments/dev
+    outputs:
+      acr_login_server: ${{ steps.tf-out.outputs.acr_login_server }}
+      default_domain: ${{ steps.tf-out.outputs.default_domain }}
     steps:
-      - name: Day 1 stub
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Terraform init
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Read registry + environment outputs
+        id: tf-out
         run: |
-          echo "No container images or Azure infrastructure exist yet. This workflow"
-          echo "stays a no-op until Day 14 (docs/plan/15-day-plan-solo.md), when it"
-          echo "deploys every service, the reconciliation job, and the external ERP to"
-          echo "Dev Container Apps through Terraform apply and runs smoke tests."
+          set -euo pipefail
+          echo "acr_login_server=$(terraform output -raw container_registry_login_server)" >> "$GITHUB_OUTPUT"
+          echo "default_domain=$(terraform output -raw container_app_environment_default_domain)" >> "$GITHUB_OUTPUT"
+
+  build-and-push:
+    needs: prepare
+    runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: identity
+            image: crepro-identity
+            dockerfile: services/identity/Dockerfile
+          - name: tenant
+            image: crepro-tenant
+            dockerfile: services/tenant/Dockerfile
+          - name: property
+            image: crepro-property
+            dockerfile: services/property/Dockerfile
+          - name: lease
+            image: crepro-lease
+            dockerfile: services/lease/Dockerfile
+          - name: reservation
+            image: crepro-reservation
+            dockerfile: services/reservation/Dockerfile
+          - name: payment
+            image: crepro-payment
+            dockerfile: services/payment/Dockerfile
+          - name: document
+            image: crepro-document
+            dockerfile: services/document/Dockerfile
+          - name: utility
+            image: crepro-utility
+            dockerfile: services/utility/Dockerfile
+          - name: maintenance
+            image: crepro-maintenance
+            dockerfile: services/maintenance/Dockerfile
+          - name: reporting
+            image: crepro-reporting
+            dockerfile: services/reporting/Dockerfile
+          - name: erp_adapter
+            image: crepro-erp-adapter
+            dockerfile: services/erp_adapter/Dockerfile
+          - name: erp_reconciliation
+            image: crepro-erp-reconciliation
+            dockerfile: services/erp_reconciliation/Dockerfile
+          - name: erp_stub
+            image: crepro-erp-stub
+            dockerfile: services/erp_stub/Dockerfile
+          - name: web
+            image: crepro-web
+            dockerfile: apps/web/Dockerfile
+            # NEXT_PUBLIC_* are inlined into the bundle at build time, so the
+            # backend URLs have to be known here, not as Container App env
+            # vars (apps.tf has a longer note on why). Underscored key, not
+            # "build-args": GitHub Actions' dot notation can't address a
+            # hyphenated property (parses as subtraction).
+            build_args: |
+              NEXT_PUBLIC_API_URL=https://ca-crepro-property.${{ needs.prepare.outputs.default_domain }}
+              NEXT_PUBLIC_IDENTITY_URL=https://ca-crepro-identity.${{ needs.prepare.outputs.default_domain }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ensure Azure CLI is installed
+        shell: powershell
+        run: |
+          if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri https://aka.ms/installazurecliwindows -OutFile "$env:RUNNER_TEMP\AzureCLI.msi"
+            Start-Process msiexec.exe -ArgumentList "/I `"$env:RUNNER_TEMP\AzureCLI.msi`" /quiet" -Wait
+            Remove-Item "$env:RUNNER_TEMP\AzureCLI.msi"
+          }
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        shell: bash
+        run: az acr login --name "$(cut -d. -f1 <<< '${{ needs.prepare.outputs.acr_login_server }}')"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build and push ${{ matrix.target.image }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.target.dockerfile }}
+          push: true
+          tags: ${{ needs.prepare.outputs.acr_login_server }}/${{ matrix.target.image }}:${{ github.sha }}
+          build-args: ${{ matrix.target.build_args }}
+          # Same scope as build.yml/security.yml's matrix (by service name,
+          # not ACR repo name) so this reuses the layer cache they populated
+          # building the same commit, instead of rebuilding from scratch.
+          cache-from: type=gha,scope=${{ matrix.target.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
+
+  apply:
+    needs: build-and-push
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
+        working-directory: infra/terraform/environments/dev
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Terraform init
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Terraform apply
+        env:
+          TF_VAR_deploy_services: "true"
+          TF_VAR_image_tag: ${{ github.sha }}
+          TF_VAR_dev_tenant_id: ${{ secrets.TF_VAR_DEV_TENANT_ID }}
+          TF_VAR_postgres_admin_password: ${{ secrets.TF_VAR_POSTGRES_ADMIN_PASSWORD }}
+          TF_VAR_erp_password: ${{ secrets.TF_VAR_ERP_PASSWORD }}
+        run: terraform apply -input=false -auto-approve
+
+  smoke-test:
+    needs: apply
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
+        working-directory: infra/terraform/environments/dev
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Terraform init
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Smoke test web + a couple of backend services
+        run: |
+          set -euo pipefail
+          for url in \
+            "$(terraform output -raw web_url)/api/health" \
+            "$(terraform output -raw identity_health_url)" \
+            "$(terraform output -raw property_health_url)"; do
+            echo "Checking $url"
+            curl -fsS --retry 12 --retry-delay 10 --retry-connrefused --retry-all-errors "$url"
+            echo
+          done
