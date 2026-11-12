@@ -27,7 +27,12 @@ RUN npm run build
 
 FROM node:20-alpine AS runtime
 
-RUN addgroup --system --gid 1001 nodejs \
+# The runtime only ever runs `node server.js` (see CMD below), never `npm`/`npx`.
+# Strip npm's bundled global install -- it drags in its own vendored deps (e.g.
+# tar) whose CVEs would otherwise show up in container scans for a tool we
+# never invoke here.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+ && addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
 WORKDIR /app
