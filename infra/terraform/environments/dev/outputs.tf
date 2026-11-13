@@ -37,9 +37,9 @@ output "identity_health_url" {
   value       = try("https://${azurerm_container_app.service["identity"].ingress[0].fqdn}/health", "")
 }
 
-output "property_health_url" {
-  description = "Property service health endpoint, for the deploy workflow's smoke test (empty until deploy_services = true)."
-  value       = try("https://${azurerm_container_app.service["property"].ingress[0].fqdn}/health", "")
+output "backend_health_url" {
+  description = "Consolidated backend health endpoint, for the deploy workflow's smoke test (empty until deploy_services = true)."
+  value       = try("https://${azurerm_container_app.service["backend"].ingress[0].fqdn}/health", "")
 }
 
 output "servicebus_namespace_name" {

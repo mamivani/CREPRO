@@ -41,8 +41,8 @@ The application will be available at `http://localhost:3000`
 The frontend expects these backend services to be running:
 
 - **Identity Service**: `http://localhost:8001` (OAuth, token management)
-- **Property Service**: `http://localhost:8000` (Property CRUD)
-- **Invoice Service**: `http://localhost:8000` (Invoice management)
+- **Backend Service** (consolidated domain API: property, tenant, lease, reservation, payment, document, utility, maintenance, reporting): `http://localhost:8003`
+- **Invoice Service**: `http://localhost:8003` (Invoice management, served by the backend)
 
 Start them with:
 

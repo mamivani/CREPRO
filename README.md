@@ -26,20 +26,23 @@ Unified Property Operations Platform. Architecture, design and delivery plan for
 | Service | Package | Responsibility |
 |---|---|---|
 | identity | `crepro-identity` | Users and roles; OAuth2/OIDC + local-account auth, JWT issuing (Day 5) |
-| tenant | `crepro-tenant` | Tenant (customer organization) directory: onboarding, tier assignment, isolation metadata |
-| property | `crepro-property` | Portfolio, buildings, units, amenities |
-| lease | `crepro-lease` | Lease lifecycle, rent schedules, increments, renewals, and resident records |
-| reservation | `crepro-reservation` | Short-stay bookings, availability, calendars |
-| payment | `crepro-payment` | Payment records, security deposits |
-| document | `crepro-document` | Documents, retention, insurance policies |
-| utility | `crepro-utility` | Meters, readings, consumption |
-| maintenance | `crepro-maintenance` | Work orders, checklists, inventory checkout, outsourced staff |
-| reporting | `crepro-reporting` | Report definitions (KPI/read-model catalog) |
+| backend | `crepro-backend` | Consolidated domain API (port 8003) that mounts the tenant, property, lease, reservation, payment, document, utility, maintenance, and reporting routers in one app |
+| tenant | `crepro-tenant` | Tenant (customer organization) directory: onboarding, tier assignment, isolation metadata (routes served by backend) |
+| property | `crepro-property` | Portfolio, buildings, units, amenities (routes served by backend) |
+| lease | `crepro-lease` | Lease lifecycle, rent schedules, increments, renewals, and resident records (routes served by backend) |
+| reservation | `crepro-reservation` | Short-stay bookings, availability, calendars (routes served by backend) |
+| payment | `crepro-payment` | Payment records, security deposits (routes served by backend) |
+| document | `crepro-document` | Documents, retention, insurance policies (routes served by backend) |
+| utility | `crepro-utility` | Meters, readings, consumption (routes served by backend) |
+| maintenance | `crepro-maintenance` | Work orders, checklists, inventory checkout, outsourced staff (routes served by backend) |
+| reporting | `crepro-reporting` | Report definitions (KPI/read-model catalog) (routes served by backend) |
 | erp_adapter | `crepro-erp-adapter` | The only service that talks to the external financial system; adapter ledger and tenant-to-ERP mapping |
 
-Each service exposes `GET /health` plus a tenant-scoped REST API (`models/`, `schemas/`,
-`repository/`, `api/`) built on `crepro_common`'s generic CRUD router and in-memory
-repository. Entities were scoped from an analysis of a property-management reference
+Each domain package exposes a `GET /health`-enabled app (`main.py`) and a tenant-scoped REST
+API (`models/`, `schemas/`, `repository/`, `api/`) built on `crepro_common`'s generic CRUD router
+and in-memory repository. In deployment the nine domain packages run as one `ca-crepro-backend`
+Container App (`services/backend`, port 8003); their `api` routers are mounted on a single FastAPI app.
+Entities were scoped from an analysis of a property-management reference
 codebase (doctypes and roles), reshaped into CREPRO's own naming with no copied code,
 branding, or URLs. Persistence is in-memory; a real database and the ERP push/reconciliation
 workers are not implemented yet.

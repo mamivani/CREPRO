@@ -52,24 +52,8 @@ jobs:
             dockerfile: packages/crepro-common/Dockerfile
           - name: identity
             dockerfile: services/identity/Dockerfile
-          - name: tenant
-            dockerfile: services/tenant/Dockerfile
-          - name: property
-            dockerfile: services/property/Dockerfile
-          - name: lease
-            dockerfile: services/lease/Dockerfile
-          - name: reservation
-            dockerfile: services/reservation/Dockerfile
-          - name: payment
-            dockerfile: services/payment/Dockerfile
-          - name: document
-            dockerfile: services/document/Dockerfile
-          - name: utility
-            dockerfile: services/utility/Dockerfile
-          - name: maintenance
-            dockerfile: services/maintenance/Dockerfile
-          - name: reporting
-            dockerfile: services/reporting/Dockerfile
+          - name: backend
+            dockerfile: services/backend/Dockerfile
           - name: erp_adapter
             dockerfile: services/erp_adapter/Dockerfile
           - name: erp_reconciliation
