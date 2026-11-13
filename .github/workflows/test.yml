@@ -26,33 +26,6 @@ jobs:
           - name: backend
             path: services/backend
             package: crepro_backend
-          - name: tenant
-            path: services/tenant
-            package: crepro_tenant
-          - name: property
-            path: services/property
-            package: crepro_property
-          - name: lease
-            path: services/lease
-            package: crepro_lease
-          - name: reservation
-            path: services/reservation
-            package: crepro_reservation
-          - name: payment
-            path: services/payment
-            package: crepro_payment
-          - name: document
-            path: services/document
-            package: crepro_document
-          - name: utility
-            path: services/utility
-            package: crepro_utility
-          - name: maintenance
-            path: services/maintenance
-            package: crepro_maintenance
-          - name: reporting
-            path: services/reporting
-            package: crepro_reporting
           - name: erp_adapter
             path: services/erp_adapter
             package: crepro_erp_adapter
@@ -104,9 +77,22 @@ jobs:
       # tiers start to actually differ from each other.
       - name: Unit and integration tests (coverage >= 90%)
         run: |
-          python -m pytest "${{ matrix.target.path }}/tests" \
-            --cov="${{ matrix.target.package }}" \
-            --cov-report=term-missing \
-            --cov-fail-under=90
+          # The backend job also runs the nine domain suites (their routers are
+          # mounted into the backend). Each suite runs in its own pytest process
+          # because test module basenames repeat across services.
+          targets="${{ matrix.target.path }}:${{ matrix.target.package }}"
+          if [ "${{ matrix.target.path }}" == "services/backend" ]; then
+            for svc in tenant property lease reservation payment document utility maintenance reporting; do
+              targets="$targets services/$svc:crepro_$svc"
+            done
+          fi
+          for target in $targets; do
+            path="${target%%:*}"
+            package="${target##*:}"
+            python -m pytest "$path/tests" \
+              --cov="$package" \
+              --cov-report=term-missing \
+              --cov-fail-under=90
+          done
 
       # Contract tests against each service's OpenAPI schema land Day 9.
