@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { AuthToken, User, ApiError } from '@/types';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8003';
 const IDENTITY_URL = process.env.EXPO_PUBLIC_IDENTITY_URL || 'http://localhost:8001';
 
 class MobileApiClient {

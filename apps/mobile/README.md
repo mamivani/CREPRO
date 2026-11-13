@@ -102,11 +102,11 @@ src/
 
 Create \.env\:
 \\\ash
-EXPO_PUBLIC_API_URL=http://10.0.2.2:8000       # Android Emulator
+EXPO_PUBLIC_API_URL=http://10.0.2.2:8003       # Android Emulator
 EXPO_PUBLIC_IDENTITY_URL=http://10.0.2.2:8001
 
 # For physical device:
-# EXPO_PUBLIC_API_URL=http://192.168.x.x:8000
+# EXPO_PUBLIC_API_URL=http://192.168.x.x:8003
 \\\
 
 Note: Android Emulator requires \10.0.2.2\ instead of \localhost\.
