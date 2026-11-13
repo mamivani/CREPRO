@@ -17,7 +17,7 @@ WORKDIR /build
 COPY --from=deps /build/node_modules ./node_modules
 COPY apps/web ./
 
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_API_URL=http://localhost:8003
 ARG NEXT_PUBLIC_IDENTITY_URL=http://localhost:8001
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
     NEXT_PUBLIC_IDENTITY_URL=${NEXT_PUBLIC_IDENTITY_URL} \

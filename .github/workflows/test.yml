@@ -23,6 +23,9 @@ jobs:
           - name: identity
             path: services/identity
             package: crepro_identity
+          - name: backend
+            path: services/backend
+            package: crepro_backend
           - name: tenant
             path: services/tenant
             package: crepro_tenant
@@ -82,6 +85,13 @@ jobs:
           # can resolve that requirement.
           if [ "${{ matrix.target.path }}" == "services/erp_reconciliation" ]; then
             python -m pip install -e services/erp_adapter
+          fi
+          # backend mounts the domain routers, which are monorepo-local packages
+          # (not on PyPI): install them first so its tests can import them.
+          if [ "${{ matrix.target.path }}" == "services/backend" ]; then
+            for svc in tenant property lease reservation payment document utility maintenance reporting; do
+              python -m pip install -e "services/$svc"
+            done
           fi
           if [ "${{ matrix.target.path }}" != "packages/crepro-common" ]; then
             python -m pip install -e "${{ matrix.target.path }}[dev]"

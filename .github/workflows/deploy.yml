@@ -78,33 +78,9 @@ jobs:
           - name: identity
             image: crepro-identity
             dockerfile: services/identity/Dockerfile
-          - name: tenant
-            image: crepro-tenant
-            dockerfile: services/tenant/Dockerfile
-          - name: property
-            image: crepro-property
-            dockerfile: services/property/Dockerfile
-          - name: lease
-            image: crepro-lease
-            dockerfile: services/lease/Dockerfile
-          - name: reservation
-            image: crepro-reservation
-            dockerfile: services/reservation/Dockerfile
-          - name: payment
-            image: crepro-payment
-            dockerfile: services/payment/Dockerfile
-          - name: document
-            image: crepro-document
-            dockerfile: services/document/Dockerfile
-          - name: utility
-            image: crepro-utility
-            dockerfile: services/utility/Dockerfile
-          - name: maintenance
-            image: crepro-maintenance
-            dockerfile: services/maintenance/Dockerfile
-          - name: reporting
-            image: crepro-reporting
-            dockerfile: services/reporting/Dockerfile
+          - name: backend
+            image: crepro-backend
+            dockerfile: services/backend/Dockerfile
           - name: erp_adapter
             image: crepro-erp-adapter
             dockerfile: services/erp_adapter/Dockerfile
@@ -123,7 +99,7 @@ jobs:
             # "build-args": GitHub Actions' dot notation can't address a
             # hyphenated property (parses as subtraction).
             build_args: |
-              NEXT_PUBLIC_API_URL=https://ca-crepro-property.${{ needs.prepare.outputs.default_domain }}
+              NEXT_PUBLIC_API_URL=https://ca-crepro-backend.${{ needs.prepare.outputs.default_domain }}
               NEXT_PUBLIC_IDENTITY_URL=https://ca-crepro-identity.${{ needs.prepare.outputs.default_domain }}
     steps:
       - uses: actions/checkout@v7
@@ -213,7 +189,7 @@ jobs:
           for url in \
             "$(terraform output -raw web_url)/api/health" \
             "$(terraform output -raw identity_health_url)" \
-            "$(terraform output -raw property_health_url)"; do
+            "$(terraform output -raw backend_health_url)"; do
             echo "Checking $url"
             curl -fsS --retry 12 --retry-delay 10 --retry-connrefused --retry-all-errors "$url"
             echo

@@ -4,23 +4,17 @@
 locals {
   deploy = var.deploy_services ? 1 : 0
 
-  # service name -> container port (matches services/*/Dockerfile EXPOSE)
+  # service name -> container port (matches services/*/Dockerfile EXPOSE).
+  # backend serves the tenant, property, lease, reservation, payment, document,
+  # utility, maintenance, and reporting routers in one container (services/backend).
   services = {
     identity    = 8001
-    tenant      = 8002
-    property    = 8003
-    lease       = 8004
-    reservation = 8005
-    payment     = 8006
-    document    = 8007
-    utility     = 8008
-    maintenance = 8009
-    reporting   = 8010
+    backend     = 8003
     erp_adapter = 8011
   }
 
   # Apps that publish or subscribe to erp-events (Dapr scopes on the pub/sub component).
-  dapr_scopes = ["property", "erp-adapter"]
+  dapr_scopes = ["backend", "erp-adapter"]
 
   # ERP the adapter and reconciliation jobs talk to. Defaults to the in-environment erp_stub
   # (internal ingress only) so dev has a working ERP target without a real ERPNext instance.
