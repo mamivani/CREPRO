@@ -101,6 +101,11 @@ terraform init "-backend-config=backend.hcl"   # quote the flag on Windows Power
 terraform plan
 ```
 
+Secrets are passed as `TF_VAR_*` environment variables and never committed. Locally, keep them
+in a gitignored `.env.*` file (for example `.env.dev.secrets`) and load them into the shell before
+planning. CI reads the same values from the GitHub secrets `TF_VAR_POSTGRES_ADMIN_PASSWORD`,
+`TF_VAR_ERP_PASSWORD`, and `TF_VAR_DEV_TENANT_ID`; update both places together when rotating.
+
 `terraform apply` only ever runs through `gh workflow run terraform.yml` (or the Actions UI),
 never locally and never from a PR — that manual trigger *is* the approval gate between plan and
 apply (Vol 4 §16), per ADR-009 (Terraform-only, no portal changes).
