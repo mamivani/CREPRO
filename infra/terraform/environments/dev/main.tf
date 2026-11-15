@@ -104,17 +104,6 @@ resource "azurerm_role_assignment" "kv_secrets_officer_deployer" {
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
-# Same 409 RoleAssignmentExists issue as azurerm_role_assignment.acr_push_deployer
-# below: this assignment already exists in Azure but wasn't in state, so the
-# `apply` tried (and failed) to create a duplicate. Whoever originally
-# provisioned these reused the same literal role-assignment GUID across
-# multiple scopes instead of generating one per assignment, so this is the
-# same GUID as the ACR import despite being an unrelated Key Vault scope.
-import {
-  to = azurerm_role_assignment.kv_secrets_officer_deployer
-  id = "${azurerm_key_vault.dev.id}/providers/Microsoft.Authorization/roleAssignments/e4eae575-5874-4538-b9b2-42ab92cf5d27"
-}
-
 # --- PostgreSQL Flexible Server (private, VNet-integrated) ---
 
 resource "azurerm_postgresql_flexible_server" "dev" {
@@ -196,16 +185,6 @@ resource "azurerm_role_assignment" "acr_push_deployer" {
   scope                = azurerm_container_registry.dev.id
   role_definition_name = "AcrPush"
   principal_id         = data.azurerm_client_config.current.object_id
-}
-
-# Azure RBAC rejects a second role assignment for the same (principal, role,
-# scope) tuple with a 409 RoleAssignmentExists -- this exact assignment was
-# already created (the deploy workflow's first `apply` run hit that 409
-# because this resource wasn't yet in state), so absorb the existing
-# assignment into state instead of trying to create a duplicate.
-import {
-  to = azurerm_role_assignment.acr_push_deployer
-  id = "${azurerm_container_registry.dev.id}/providers/Microsoft.Authorization/roleAssignments/e4eae575-5874-4538-b9b2-42ab92cf5d27"
 }
 
 # --- Container Apps environment (no apps yet: Day 14 deploys the services) ---
