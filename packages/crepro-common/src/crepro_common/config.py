@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # Base URL other services use to reach the tenant directory for Day 5's
     # custom-domain/subdomain tenant resolution.
-    tenant_service_url: str = "http://tenant:8002"
+    tenant_service_url: str = "http://backend:8003"
 
     # OpenTelemetry basics (Day 5). Unset in Dev by default: tracing stays a no-op
     # until an OTLP collector endpoint is configured, so this never requires a

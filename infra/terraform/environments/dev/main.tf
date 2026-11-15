@@ -177,6 +177,16 @@ resource "azurerm_container_registry" "dev" {
   tags                = local.tags
 }
 
+# Lets whichever identity runs `terraform apply` (the deploy workflow's
+# service principal in CI, the operator locally) `docker push` images,
+# without the broader Contributor role that already applies at subscription
+# scope also being the thing CI depends on for registry access.
+resource "azurerm_role_assignment" "acr_push_deployer" {
+  scope                = azurerm_container_registry.dev.id
+  role_definition_name = "AcrPush"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
 # --- Container Apps environment (no apps yet: Day 14 deploys the services) ---
 
 resource "azurerm_log_analytics_workspace" "dev" {

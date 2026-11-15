@@ -52,37 +52,25 @@ jobs:
             dockerfile: packages/crepro-common/Dockerfile
           - name: identity
             dockerfile: services/identity/Dockerfile
-          - name: tenant
-            dockerfile: services/tenant/Dockerfile
-          - name: property
-            dockerfile: services/property/Dockerfile
-          - name: lease
-            dockerfile: services/lease/Dockerfile
-          - name: reservation
-            dockerfile: services/reservation/Dockerfile
-          - name: payment
-            dockerfile: services/payment/Dockerfile
-          - name: document
-            dockerfile: services/document/Dockerfile
-          - name: utility
-            dockerfile: services/utility/Dockerfile
-          - name: maintenance
-            dockerfile: services/maintenance/Dockerfile
-          - name: reporting
-            dockerfile: services/reporting/Dockerfile
+          - name: backend
+            dockerfile: services/backend/Dockerfile
           - name: erp_adapter
             dockerfile: services/erp_adapter/Dockerfile
           - name: erp_reconciliation
             dockerfile: services/erp_reconciliation/Dockerfile
           - name: erp_stub
             dockerfile: services/erp_stub/Dockerfile
+          - name: web
+            dockerfile: apps/web/Dockerfile
     steps:
       - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v4
 
-      # Build only, no push: Azure Container Registry doesn't exist until Day 3
-      # (Terraform). Day 3+ adds login and push here once it does.
+      # Build-only validation on every push/PR (fast fail on a broken
+      # Dockerfile before merge). The real build+push+deploy pipeline for
+      # main runs in deploy.yml, which has Azure credentials and can't run on
+      # unreviewed PR branches.
       - name: Build ${{ matrix.target.name }}
         uses: docker/build-push-action@v6
         with:
