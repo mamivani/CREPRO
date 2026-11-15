@@ -4,7 +4,12 @@ on:
   pull_request:
   push:
     branches: [main, develop]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      deploy_services:
+        description: "Create the container apps and jobs. Use false only to bootstrap infra (ACR, Key Vault, database) before images exist."
+        type: boolean
+        default: true
 
 permissions:
   id-token: write
@@ -95,7 +100,7 @@ jobs:
 
       - name: Terraform apply
         env:
-          TF_VAR_deploy_services: "true"
+          TF_VAR_deploy_services: ${{ inputs.deploy_services }}
           TF_VAR_dev_tenant_id: ${{ secrets.TF_VAR_DEV_TENANT_ID }}
           TF_VAR_postgres_admin_password: ${{ secrets.TF_VAR_POSTGRES_ADMIN_PASSWORD }}
           TF_VAR_erp_password: ${{ secrets.TF_VAR_ERP_PASSWORD }}
